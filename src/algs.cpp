@@ -1,0 +1,1427 @@
+#ifndef ALGS_CPP
+#define ALGS_CPP
+
+#include "mygraph.cpp"
+#include <set>
+#include <map>
+#include <string>
+#include <vector>
+#include <fstream>
+
+using namespace std;
+using namespace mygraph;
+
+enum Algs {IG=0, TG, RG, SG, BLITS, FIG, FRG, ATG};
+
+uniform_real_distribution< double > unidist(0, 1);
+
+resultsHandler allResults;
+
+struct Args {
+   Algs alg;
+   string graphFileName;
+   string outputFileName = "";
+   size_t k;
+   tinyGraph g;
+   double tElapsed;
+   double wallTime;
+   Logger logg;
+   bool steal = true;
+   double epsi = 0.1;
+   double delta = 0.1;
+   size_t N = 1;
+};
+
+class MyPair {
+public:
+   node_id u;
+   int64_t  gain; //may be negative
+
+   MyPair() {}
+   MyPair( node_id a,
+	   int64_t g ) {
+      u = a;
+      gain = g;
+   }
+
+   MyPair( const MyPair& rhs ) {
+      u = rhs.u;
+      gain = rhs.gain;
+   }
+
+   void operator=( const MyPair& rhs ) {
+      u = rhs.u;
+      gain = rhs.gain;
+   }
+};
+
+
+
+struct gainLT {
+   bool operator() (const MyPair& p1, const MyPair& p2) {
+      return p1.gain < p2.gain;
+   }
+} gainLTobj;
+
+struct revgainLT {
+   bool operator() (const MyPair& p1, const MyPair& p2) {
+      return (p1.gain > p2.gain);
+   }
+} revgainLTobj;
+
+signed long marge( size_t& nEvals, tinyGraph& g, node_id u, vector<bool>& set) {
+   
+   if (set[u])
+      return 0;
+   
+   ++nEvals;
+   
+   signed long m;
+   double mx = 2 * g.getWeightedDegreeMinusSet(u,set);
+   double my = g.getWeightedDegree( u );
+
+   m = (mx - my);
+      
+   return m;
+}
+
+size_t compute_valSet( size_t& nEvals, tinyGraph& g, vector<bool>& set ) {
+   ++nEvals;
+   size_t val = 0;
+   for (node_id u = 0 ; u < g.n; ++u) {
+      vector< tinyEdge >& neis = g.adjList[u].neis;
+      for (size_t j = 0; j < neis.size(); ++j) {
+	 node_id v = neis[j].target;
+	 if ( ( set[u] && !set[v] ) || (!set[u] && set[v]) ) 
+	    val += neis[j].weight;
+      }
+   }
+
+   return val / 2;
+}
+
+void reportResults( size_t nEvals, size_t obj ) {
+   allResults.add( "obj", obj );
+   allResults.add( "nEvals", nEvals );
+}
+
+
+class Ig {
+   size_t k;
+   tinyGraph& g;
+   bool steal;
+   size_t nEvals = 0;
+public:
+   Ig( Args& args ) : g( args.g ) {
+      k = args.k;
+      steal = args.steal;
+   }
+
+   long leastBenefit( node_id u, vector<bool>& set ) {
+      set[u] = false;
+      long m = marge( nEvals, g, u, set );
+      set[u] = true;
+      return m;
+   }
+   
+ 
+   void run() {
+      vector<bool> A( g.n, false );
+      vector<bool> B( g.n, false );
+      vector<bool> C( g.n, false );
+      vector<bool> D( g.n, false );
+      vector<bool> E( g.n, false );
+
+      size_t valA = 0;
+      size_t valB = 0;
+      size_t valD;
+      size_t valE;
+      
+      node_id maxSingle;
+      for (size_t i = 0; i < k; ++i) {
+	 size_t maxAid = 0;
+	 long maxMargeA = 0;
+	 for (node_id u = 0; u < g.n; ++u) {
+	    if (!( B[u] || A[u] )) {
+	       if (marge( nEvals, g, u, A ) >= maxMargeA) {
+		  maxMargeA = marge( nEvals, g,u, A);
+		  maxAid = u;
+	       }
+	    }
+	 }
+
+	 if (maxMargeA > 0) {
+	    A[maxAid] = true;
+	 
+	    valA += maxMargeA;
+	 }
+
+	 if (i == 0)
+	    maxSingle = maxAid;
+	 
+	 size_t maxBid = 0;
+	 long maxMargeB = 0;
+	 for (node_id u = 0; u < g.n; ++u) {
+	    if (!( B[u] || A[u] )) {
+	       if (marge( nEvals, g, u, B ) >= maxMargeB) {
+		  maxMargeB = marge( nEvals, g, u, B );
+		  maxBid = u;
+	       }
+	    }
+	 }
+	 
+	 if (maxMargeB > 0) {
+	    B[ maxBid ] = true;
+	    valB += maxMargeB;
+	 }
+      }
+
+      g.logg << "IG: First interlacing complete." << endL;
+
+      //Begin second interlacing
+      g.logg << "IG: Adding maxSingle to D,E: " << maxSingle << endL;
+      valD = marge( nEvals, g, maxSingle, D );
+      valE = valD;
+      D[ maxSingle ] = true;
+      E[ maxSingle ] = true;
+      for (size_t i = 0; i < k - 1; ++i) {
+	 size_t maxDid = 0;
+	 long maxMargeD = 0;
+	 for (node_id u = 0; u < g.n; ++u) {
+	    if (!( D[u] || E[u] )) {
+	       if (marge( nEvals, g, u, D ) > maxMargeD) {
+		  maxMargeD = marge( nEvals, g,u, D);
+		  maxDid = u;
+	       }
+	    }
+	 }
+
+	 if (maxMargeD > 0) {
+	    D[ maxDid ] = true;
+	 
+	    valD += maxMargeD;
+	 }
+	 
+	 size_t maxEid = 0;
+	 long maxMargeE = 0;
+	 for (node_id u = 0; u < g.n; ++u) {
+	    if (!( E[u] || D[u])) {
+	       if (marge( nEvals, g, u, E ) > maxMargeE) {
+		  maxMargeE = marge( nEvals, g, u, E );
+		  maxEid = u;
+	       }
+	    }
+	 }
+	 if (maxMargeE > 0) {
+	    E[ maxEid ] = true;
+	    valE += maxMargeE;
+	 }
+
+	 	 
+      }
+
+      g.logg << "IG: Second interlacing complete." << endL;
+
+      valA = compute_valSet( nEvals,  g, A );
+      valB = compute_valSet( nEvals,  g, B );
+      valD = compute_valSet( nEvals,  g, D );
+      valE = compute_valSet( nEvals,  g, E );
+      vector <size_t> vC;
+      vC.push_back( valA );
+      vC.push_back( valB );
+      vC.push_back( valD );
+      vC.push_back( valE );
+
+      size_t valC = 0;
+      size_t jj = 0;
+      for (size_t i = 0; i < vC.size(); ++i) {
+	 if (vC[i] > valC) {
+	    valC = vC[i];
+	    jj = i;
+	 }
+      }
+      
+      if (jj == 0) 
+	 C = A;
+      if (jj == 1)
+	 C = B;
+      if (jj == 2)
+	 C = D;
+      if (jj == 3)
+	 C = E;
+      g.logg << "C: " << compute_valSet( nEvals,  g, C ) << endL;
+
+      //steal      
+      if (steal) {
+	 vector< MyPair > possibleGain;
+	 vector< MyPair > Cbenefits;
+	 MyPair tmp;
+	 for (size_t i = 0; i < g.n; ++i) {
+	    if (A[i] || B[i] || D[i] || E[i]) {
+	       tmp.u = i;
+	       tmp.gain = marge( nEvals, g, i, C );
+
+	       
+	       possibleGain.push_back( tmp );
+	    }
+
+	    if (C[i]) {
+	       tmp.u = i;
+	       tmp.gain = leastBenefit(i,C);
+
+	       Cbenefits.push_back ( tmp );
+	    }
+	 }
+
+	 //g.logg << "IG: Sorting..." << endL;
+	 std::sort( Cbenefits.begin(), Cbenefits.end(), gainLT() );
+	 std::sort( possibleGain.begin(), possibleGain.end(), revgainLT() );
+
+
+
+	 //Attempt to replace elements of C
+	 size_t nStolen = 0;
+	 for (size_t i = 0; i < Cbenefits.size(); ++i) {
+
+	    if ( Cbenefits[ i ].gain < possibleGain[ i ].gain ) {
+
+	       if ( C[ possibleGain[i].u ] ) {
+		  C[ possibleGain[i].u ] = false;
+	       } else {
+		  ++nStolen;
+		  C[ Cbenefits[i].u ] = false;
+		  C[ possibleGain[i].u ] = true;
+	       }
+	    }
+	 }
+	 g.logg << "IG: Stealing complete: " << nStolen << " stolen." << endL;
+      }
+
+      g.logg << "C: " << compute_valSet( nEvals,  g, C ) << endL;
+      g.logg << "Evals: " << nEvals << endL;
+
+      reportResults( nEvals, compute_valSet(nEvals, g, C) );
+   }
+};
+
+class Fig {
+   size_t k;
+   tinyGraph& g;
+   bool steal;
+   size_t nEvals = 0;
+   double epsi;
+   double stopGain;
+public:
+   Fig( Args& args ) : g( args.g ) {
+      k = args.k;
+      steal = args.steal;
+      epsi = args.epsi;
+
+   }
+
+   long leastBenefit( node_id u, vector<bool>& set ) {
+      set[u] = false;
+      long m = marge( nEvals, g, u, set );
+      set[u] = true;
+      return m;
+   }
+
+   bool swap( node_id u, node_id v, vector<bool>& set ) {
+      long init = compute_valSet( nEvals, g, set );
+      set[u] = false;
+      set[v] = true;
+      long m = compute_valSet( nEvals, g, set );
+      if (m > init) {
+	 return true;
+      }
+      set[u] = true;
+      set[v] = false;
+      return false;
+   }
+
+   size_t sizeSet( vector<bool>& S ) {
+      size_t ssize = 0;
+      for (size_t i = 0; i < g.n; ++i) {
+	 if (S[i])
+	    ++ssize;
+      }
+      return ssize;
+   }
+   
+   void add( vector<bool>& S, vector<bool>& T, node_id& j, size_t& tau ) {
+      if (sizeSet( S ) == k) {
+	 j = 0;
+	 tau = stopGain;
+	 return;
+      }
+
+      while ( tau > stopGain ) {
+	 for (node_id x = j; x < g.n; ++x) {
+	    if (!T[x]) {
+	       if (marge(nEvals, g, x, S) >= static_cast<signed long>( tau )) {
+		  S[ x ] = true;
+		  j = x;
+		  return;
+	       }
+	    }
+	 }
+	 tau = ( 1 - epsi ) * tau;
+	 j = 0;
+      }
+      j = 0;
+      return;
+   }
+  
+   void run() {
+      vector<bool> A( g.n, false );
+      vector<bool> B( g.n, false );
+      vector<bool> C( g.n, false );
+      vector<bool> D( g.n, false );
+      vector<bool> E( g.n, false );
+
+      g.logg << "FIG: epsi = " << epsi << ", k = " << k << endL;
+      
+      //Get max singleton
+      g.logg << "FIG: Determining max singleton..." << endL;
+      size_t M = 0;
+      node_id a0;
+      for (size_t x = 0; x < g.n; ++x) {
+	 if ( marge( nEvals, g, x, A ) > static_cast<signed long>(M) ) {
+	    a0 = x;
+	    M = marge( nEvals, g, x, A );
+	 }
+      }
+
+      g.logg << "FIG: M = " << M << endL;
+      g.logg << "FIG: Stopping condition: " << stopGain << endL;
+      
+      g.logg << "FIG: Starting first interlacing..." << endL;
+      size_t tauA = M;
+      size_t tauB = M;
+      stopGain = epsi * M / g.n;
+      node_id a = 0;
+      node_id b = 0;
+      while ( tauA > stopGain || tauB > stopGain) {
+	 //g.logg << "FIG: tauA = " << tauA << ", tauB = " << tauB << endL;
+	 add( A, B, a, tauA );
+	 add( B, A, b, tauB );
+      }
+
+      //g.logg << "FIG: First interlacing complete." << endL;
+      g.logg << "FIG: Starting second interlacing..." << endL;
+      size_t tauD = M;
+      size_t tauE = M;
+      node_id d = 0;
+      node_id e = 0;
+      D[ a0 ] = true;
+      E[ a0 ] = true;
+      while ( tauD > stopGain || tauE > stopGain) {
+	 //g.logg << "FIG: tauD = " << tauD << ", tauE = " << tauE << endL;
+	 add( D, E, d, tauD );
+	 add( E, D, e, tauE );
+      }
+      
+      size_t valA = compute_valSet( nEvals,  g, A );
+      size_t valB = compute_valSet( nEvals,  g, B );
+      size_t valD = compute_valSet( nEvals,  g, D );
+      size_t valE = compute_valSet( nEvals,  g, E );
+      vector <size_t> vC;
+      vC.push_back( valA );
+      vC.push_back( valB );
+      vC.push_back( valD );
+      vC.push_back( valE );
+
+      size_t valC = 0;
+      size_t jj = 0;
+      for (size_t i = 0; i < vC.size(); ++i) {
+	 if (vC[i] > valC) {
+	    valC = vC[i];
+	    jj = i;
+	 }
+      }
+      
+      if (jj == 0) 
+	 C = A;
+      if (jj == 1)
+	 C = B;
+      if (jj == 2)
+	 C = D;
+      if (jj == 3)
+	 C = E;
+      g.logg << "FIG: f(C) = " << compute_valSet( nEvals,  g, C ) << endL;
+
+      //steal      
+      if (steal) {
+	 vector< MyPair > possibleGain;
+	 vector< MyPair > Cbenefits;
+	 MyPair tmp;
+	 for (size_t i = 0; i < g.n; ++i) {
+	    if (A[i] || B[i] || D[i] || E[i]) {
+	       tmp.u = i;
+	       tmp.gain = marge( nEvals, g, i, C );
+
+	       
+	       possibleGain.push_back( tmp );
+	    }
+
+	    if (C[i]) {
+	       tmp.u = i;
+	       tmp.gain = leastBenefit(i,C);
+
+	       Cbenefits.push_back ( tmp );
+	    }
+	 }
+
+	 //g.logg << "IG: Sorting..." << endL;
+	 std::sort( Cbenefits.begin(), Cbenefits.end(), gainLT() );
+	 std::sort( possibleGain.begin(), possibleGain.end(), revgainLT() );
+
+
+
+	 //Attempt to replace elements of C
+	 size_t nStolen = 0;
+	 for (size_t i = 0; i < Cbenefits.size(); ++i) {
+
+	    if ( Cbenefits[ i ].gain < possibleGain[ i ].gain ) {
+	       
+	       if ( C[ possibleGain[i].u ] ) {
+		  C[ possibleGain[i].u ] = false;
+	       } else {
+		  if (this->swap( Cbenefits[i].u,
+				  possibleGain[i].u,
+				  C )) {
+		     ++nStolen;
+		     //C[ Cbenefits[i].u ] = false;
+		     //C[ possibleGain[i].u ] = true;
+		  }
+	       }
+	    }
+	 }
+	 g.logg << "FIG: Stealing complete: " << nStolen << " stolen." << endL;
+	 g.logg << "FIG: f(C) = " << compute_valSet( nEvals,  g, C ) << endL;
+      }
+
+      g.logg << "FIG: # evals = " << nEvals << endL;
+      reportResults( nEvals, compute_valSet(nEvals, g, C) );
+   }
+};
+
+
+class Rg {
+   size_t k;
+   tinyGraph& g;
+   size_t nEvals = 0;
+public:
+   Rg( Args& args ) : g( args.g ) {
+      k = args.k;
+   }
+
+   long leastBenefit( node_id u, vector<bool>& set ) {
+      ++nEvals;
+      set[u] = false;
+      long m = marge( nEvals, g, u, set );
+      set[u] = true;
+      return m;
+   }
+   
+   void run() {
+      vector<bool> A( g.n, false );
+      vector< MyPair > margeGains;
+      MyPair tmp;
+      
+      for (size_t i = 0; i < k; ++i) {
+	 margeGains.clear();
+	 for (node_id u = 0; u < g.n; ++u) {
+	    if (!( A[u] )) {
+	       tmp.gain = marge( nEvals, g,u, A);
+	       tmp.u = u;
+	       margeGains.push_back( tmp );
+	    }
+	 }
+
+	 std::sort( margeGains.begin(), margeGains.end(), revgainLT() );
+	 uniform_int_distribution< size_t > dist(0, k - 1);
+	 size_t rand = dist( gen );
+	 node_id u = margeGains[ rand ].u;
+	 A[u] = true;
+      }
+
+      g.logg << "A: " << compute_valSet( nEvals,  g, A ) << endL;
+      g.logg << "Evals: " << nEvals << endL;
+
+      reportResults( nEvals, compute_valSet(nEvals, g, A) );
+   }
+};
+
+class Frg {
+   Args& myArgs;
+   size_t k;
+   tinyGraph& g;
+   size_t nEvals = 0;
+   double epsi;
+   size_t w;
+   size_t W;
+public:
+   Frg( Args& args ) : myArgs( args ), g( args.g ) {
+      k = args.k;
+      epsi = args.epsi;
+   }
+
+   long leastBenefit( node_id u, vector<bool>& set ) {
+      ++nEvals;
+      set[u] = false;
+      long m = marge( nEvals, g, u, set );
+      set[u] = true;
+      return m;
+   }
+
+   void fillM( vector< node_id >& M, vector< bool >& S ) {
+
+      while (w > epsi*W / k) {
+	 for (node_id x = 0; x < g.n; ++x) {
+	    if (marge( nEvals, g, x, S ) > (1 - epsi)*w) {
+	       M.push_back( x );
+	       if ( M.size() >= k )
+		  return;
+	    }
+	 }
+	 
+	 w = (1 - epsi)*w;
+      }
+   }
+
+   void run() {
+      runRandom();
+   }
+
+   void randomSampling( double p, size_t s, vector<bool>& A ) {
+      size_t rho = p * g.n + 1;
+      vector< bool > M;
+      vector< MyPair > margeGains;
+      MyPair tmp;
+      for (size_t i = 0; i < k; ++i) {
+	 sampleUnifSize( M, rho );
+
+	 margeGains.clear();
+	 for (node_id u = 0; u < g.n; ++u) {
+	    if ( M[u] ) {
+	       tmp.gain = marge( nEvals, g,u, A);
+	       tmp.u = u;
+	       margeGains.push_back( tmp );
+	    }
+	 }
+
+	 std::sort( margeGains.begin(), margeGains.end(), revgainLT() );
+	 uniform_int_distribution< size_t > dist(0, s - 1);
+	 size_t rand = dist( gen );
+	 node_id u = margeGains[ rand ].u;
+	 if ( marge( nEvals, g, u, A ) >= 0.0 ) {
+	    A[u] = true;
+	 }
+      }
+   }
+
+   void sampleUnifSize( vector<bool>& R, size_t Size ) {
+
+      uniform_int_distribution<size_t> dist(0, g.n-1);
+      R.assign(g.n, false);
+
+      for (size_t i = 0; i < Size; ++i) {
+	 size_t pos;
+	 do {
+	    pos = dist( gen );
+	 } while ( R[ pos ] );
+	 R[ pos ] = true;
+      }
+    
+   }
+
+   void runRandom() {
+      double p = 8.0 / (k * epsi * epsi) * log( 2 / (epsi) );
+      g.logg << "FastRandom: p = " << p << endL;
+      if (p >= 1.0) {
+	 //run RandomGreedy
+	 g.logg << "FastRandom: Running RandomGreedy..." << endL;
+	 Rg rg( myArgs );
+	 rg.run();
+	 
+      } else {
+	 g.logg << "FastRandom: Running RandomSampling..." << endL;
+	 vector<bool> S(g.n, false );
+	 size_t rho = p * g.n + 1;
+	 size_t s = rho * k / g.n;
+
+	 randomSampling( p, s, S );
+
+	 g.logg << "S: " << compute_valSet( nEvals,  g, S ) << endL;
+	 g.logg << "Evals: " << nEvals << endL;
+
+	 reportResults( nEvals, compute_valSet(nEvals, g, S) );
+      }
+   }   
+   
+   void runSimple() {
+      vector<node_id> M;
+      vector<node_id> newM;
+      vector<bool> S( g.n, false );
+
+      //Get max singleton
+      g.logg << "FRG: Determining max singleton..." << endL;
+      W = 0;
+
+
+      for (size_t x = 0; x < g.n; ++x) {
+	 if ( marge( nEvals, g, x, S ) > static_cast<signed long>(W) ) {
+	    W = marge( nEvals, g, x, S );
+	 }
+      }
+      w = W;
+      
+      for (size_t i = 0; i < k; ++i) {
+	 g.logg << "FRG: iteration " << i << endL;
+	 fillM( M, S );
+	 uniform_int_distribution< size_t > dist(0, k - 1 );
+	 size_t rand = dist( gen );
+	 if (rand >= M.size())
+	    continue;
+	 
+	 node_id u = M[ rand ];
+	 S[u] = true;
+	 //M.erase( M.begin() + u );
+	 for (size_t j = 0; j < M.size(); ++j) {
+	    if ( marge( nEvals, g, M[j], S ) <= (1 - epsi)*w ) {
+	       //
+	    } else {
+	       newM.push_back( M[j] );
+	    }
+	 }
+	 M = newM;
+      }
+
+      g.logg << "S: " << compute_valSet( nEvals,  g, S ) << endL;
+      g.logg << "Evals: " << nEvals << endL;
+
+      reportResults( nEvals, compute_valSet(nEvals, g, S) );
+   }
+
+   void runImproved() {
+      vector<node_id> M;
+      vector<bool> S( g.n, false );
+
+      //Get max singleton
+      g.logg << "FRG: Determining max singleton..." << endL;
+      W = 0;
+
+
+      for (size_t x = 0; x < g.n; ++x) {
+	 if ( marge( nEvals, g, x, S ) > static_cast<signed long>(W) ) {
+	    W = marge( nEvals, g, x, S );
+	 }
+      }
+
+      //w = W;
+
+      fillM( M, S );
+      
+      for (size_t i = 0; i < k; ++i) {
+	 uniform_int_distribution< size_t > dist(0, M.size() - 1 );
+	 size_t rand = dist( gen );
+	 node_id u = M[ rand ];
+	 if ( marge( nEvals, g, u, S ) > (1 - epsi)*w ) {
+	    S[u] = true;
+	 } else {
+	    vector< node_id > newM;
+	    for (size_t j = 0; j < M.size(); ++j) {
+	       if ( marge( nEvals, g, M[j], S ) <= (1 - epsi)*w ) {
+		  //
+	       } else {
+		  newM.push_back( M[j] );
+	       }
+	    }
+	    M = newM;
+	    size_t sizeOld = M.size();
+	    fillM( M, S );
+	    size_t sizeInc = M.size() - sizeOld;
+	    if (sizeInc > 0) {
+	       uniform_int_distribution< size_t > dist(0, sizeInc - 1 );
+	       size_t rand = dist( gen );
+	       node_id u = M[ sizeOld + rand ];
+	       S[u] = true;
+	    }
+	 }
+      }
+
+      g.logg << "S: " << compute_valSet( nEvals,  g, S ) << endL;
+      g.logg << "Evals: " << nEvals << endL;
+
+      reportResults( nEvals, compute_valSet(nEvals, g, S) );
+   }
+};
+
+class Sg {
+   size_t k;
+   tinyGraph& g;
+   size_t nEvals = 0;
+public:
+   Sg( Args& args ) : g( args.g ) {
+      k = args.k;
+   }
+
+   long leastBenefit( node_id u, vector<bool>& set ) {
+      set[u] = false;
+      long m = marge( nEvals, g, u, set );
+      set[u] = true;
+      return m;
+   }
+   
+   
+   void run() {
+      vector<bool> A( g.n, false );
+
+      int64_t maxGain;
+      node_id maxIdx;
+      MyPair tmp;
+
+      for (size_t i = 0; i < k; ++i) {
+	 maxGain = 0;
+	 for (node_id u = 0; u < g.n; ++u) {
+	    
+	    if (marge( nEvals, g,u,A) > maxGain) {
+	       maxIdx = u;
+	       maxGain = marge( nEvals, g,u,A);
+	    }
+	 }
+
+	 if (maxGain > 0) {
+	    A[maxIdx] = true;
+	 } else {
+	    break;
+	 }
+      }
+
+      g.logg << "A: " << compute_valSet( nEvals,  g, A ) << endL;
+      g.logg << "Evals: " << nEvals << endL;
+
+      reportResults( nEvals, compute_valSet(nEvals, g, A) );
+   }
+};
+
+class Atg {
+public:
+   size_t k;
+   tinyGraph& g;
+   double epsi;
+   double delta;
+   size_t r;
+   size_t OPT; //guess for opt
+   size_t nSamps = 30;
+   size_t nEvals = 0;
+
+   Atg( Args& args ) : g( args.g ) {
+      k = args.k;
+      //OPT = 130180;
+      OPT = g.m;
+      epsi = args.epsi;
+      delta = args.delta;
+      g.logg << "ATG initialized:" << endL;
+      g.logg << "epsi=" << epsi << endL;
+      g.logg << "delta=" << delta << endL;
+      g.logg << "k=" << k << endL;
+   }
+
+   void sampleUt( vector<bool>& R, vector<bool>& A, size_t t ) {
+      uniform_int_distribution<size_t> dist(0, g.n-1);
+      R.assign(g.n, false);
+      //      cerr << sizeSet( X ) << ' ' << k / r << endl;
+      for (size_t i = 0; i < t; ++i) {
+	 size_t pos;
+	 do {
+	    pos = dist( gen );
+	 } while (!A[ pos ] || R[ pos ] );
+	 R[ pos ] = true;
+      }
+   }
+   void sampleUt( vector<size_t>& R, vector<size_t>& A, size_t t ) {
+      //g.logg << "Starting sampleUX..." << endL;
+      R.clear();
+      uniform_int_distribution<size_t> dist(0, A.size() - 1);
+      vector< bool > alreadySampled( A.size(), false );
+
+      for (size_t i = 0; i < t; ++i) {
+	 size_t pos;
+	 do {
+	    pos = dist( gen );
+	 } while ((alreadySampled[pos]) );
+
+	 alreadySampled[pos] = true;
+	 R.push_back( A[pos] );
+      }
+   }
+
+   unsigned samp_Dt( vector< size_t >& idsA,
+		     vector< size_t >& idsS,
+		     size_t t,
+		     double tau ) {
+      vector< size_t > idsT;
+      vector< bool > T( g.n, false );
+      uniform_int_distribution<size_t> dist(0, idsA.size() - 1);
+      while (idsT.size() < t - 1) {
+	 size_t pos;
+	 pos = dist( gen );
+	 if ( !T[ idsA[ pos ] ] ) {
+	    T[ idsA[ pos ] ] = true;
+	    idsT.push_back( idsA[ pos ] );
+	 }
+      }
+
+      size_t x = 0;
+      do {
+	 size_t pos = dist( gen );
+	 x = idsA[ pos ];
+      } while ( T[ x ] );
+
+      vector< bool > ScupT(g.n, false);
+      
+      for (size_t i = 0; i < idsS.size(); ++i) {
+	 ScupT[idsS[i]] = true;
+      }
+      for (size_t i = 0; i < idsT.size(); ++i) {
+	 ScupT[idsT[i]] = true;
+      }
+
+      if ( marge( nEvals, g, x, ScupT ) >= tau ) {
+
+	 return 1;
+      }
+
+      return 0;
+   }
+
+   void filter( vector< bool >& A,
+		vector< bool >& S,
+		double tau,
+		vector< size_t >& idsA ) {
+      vector< size_t > newIdsA;
+      for (size_t i = 0; i < idsA.size(); ++i) {
+	 size_t x = idsA[i];
+	 if (S[x]) {
+	    // filter x
+	    A[x] = false;
+	 } else {
+	    if (marge( nEvals, g, x, S ) < tau) {
+	       //filter x
+	       A[x] = false;
+	    } else {
+	       //keep x
+	       newIdsA.push_back( x );
+	    }
+	 }
+      }
+
+      idsA.swap( newIdsA );
+   }
+
+   size_t get_size_set( vector< bool >& S ) {
+      size_t sizeSol = 0;
+      for (size_t i = 0; i < g.n; ++i)
+	 if (S[i])
+	    ++sizeSol;
+      return sizeSol;
+   }
+   
+   void threshold_sample( vector< bool >& S,
+			  size_t k,
+			  double tau,
+			  double epsi,
+			  double delta,
+			  vector< bool >& exclude,
+			  bool bexcl,
+			  vector< size_t >& idsS ) {
+      double hatepsi = epsi / 3;
+      size_t r = log( 2*g.n / delta ) + 1;
+      size_t m = log( k ) / hatepsi + 1;
+      double hatdelta = delta / (2*r*(m+1));
+
+      S.assign( g.n, false );
+      size_t sizeS = 0;
+      vector< bool > A( g.n, true );
+      vector< size_t > idsA;
+      //vector< size_t > idsS;
+      idsS.clear();
+      vector< size_t > idsT;
+      for (size_t i = 0; i < g.n; ++i) {
+	 if (bexcl) {
+	    if (!exclude[i])
+	       idsA.push_back(i);
+	    else
+	       A[i] = false;
+	 } else
+	    idsA.push_back( i );
+      }
+
+      for (unsigned j = 0; j < r; ++j) {
+	 filter( A, S, tau, idsA );
+	 g.logg << DEBUG << "Post filter size of A: " << idsA.size() << endL;
+	 if (idsA.size() == 0) {
+	    return;
+	 } else {
+	    if (idsA.size() == 1) {
+	       S[ idsA[0] ] = true;
+	       idsS.push_back( idsA[0] );
+	       ++sizeS;
+	       return;
+	    }
+	 }
+	 double tmpT = 1;//= (1+hatepsi)^i
+	 size_t t = 0;
+	 for (unsigned i = 0; i < m; ++i) {
+	    
+	    t = idsA.size();
+	    if (t > static_cast<size_t>(tmpT))
+	       t = static_cast<size_t>(tmpT);
+	    tmpT = tmpT * (1 + hatepsi);
+
+	    g.logg << TRACE << "tmpT t: " << tmpT << " " << t << endL;
+	    size_t ell = 16*( log( 2 / hatdelta )/ hatepsi / hatepsi + 1);
+	    double ubar = 0;
+	    if ( t > 1) {
+	       for (size_t l = 0; l < ell; ++l) {
+
+		  ubar += samp_Dt( idsA, idsS, t, tau );
+	       }
+	       ubar /= ell;
+	       if (ubar <= 1 - 1.5*hatepsi)
+		  break;
+	    } else {
+	       
+	    }
+	 }
+
+	 if ( t > k - sizeS )
+	    t = k - sizeS;
+
+	 
+	 sampleUt( idsT, idsA, t );
+	 g.logg << DEBUG << "Adding random set of size: "
+		<< idsT.size() << endL;
+	 for (size_t i = 0; i < t; ++i){
+	    if (!S[ idsT[i] ]) {
+	       S[ idsT[i] ] = true;
+	       ++sizeS;
+	       idsS.push_back( idsT[i] );
+	    }
+	    
+	 }
+	 if (sizeS >= k)
+	    return;
+      }
+   }
+
+   void random_set( vector< bool >& C, vector< size_t >& A ) {
+      C.assign( g.n, false );
+      double prob = 1.0 / A.size();
+      
+      for (size_t i = 0; i < A.size(); ++i) {
+	 if (unidist(gen) < prob) {
+	    C[ A[i] ] = true;
+	 }
+      }
+   }
+   
+   void run() {
+      g.logg << "ATG: starting run..." << endL;
+      vector<bool> A( g.n, false );
+      vector<size_t> idsA;
+      vector<size_t> idsB;
+      vector<bool> B( g.n, false );
+      vector<bool> C( g.n, false );
+      vector<bool> sol( g.n, false );
+      size_t solVal = 0;
+
+      g.logg.set_level( DEBUG );
+      
+      //Get max singleton
+      g.logg << "ATG: Determining max singleton..." << endL;
+      size_t M = 0;
+      //node_id a0;
+
+      for (size_t x = 0; x < g.n; ++x) {
+	 if ( marge( nEvals, g, x, A ) > static_cast<signed long>(M) ) {
+	    //a0 = x;
+	    M = marge( nEvals, g, x, A );
+	 }
+      }
+
+      g.logg << "ATG: M = " << M << endL;
+
+      size_t m = log( 1.0 / (6 * k) ) / log( 1 - epsi );
+
+      double tau_i = M / (1 - epsi);
+
+      g.logg << "ATG: m = " << m << endL;
+      
+      for (unsigned i = 0; i <= m; ++i) {
+	 if (m < solVal * (1 - epsi) / (6*k)) {
+	    //solVal is a lower bound on OPT and
+	    //telling us we can stop now.
+	    break;
+	 }
+	 
+	 g.logg << "ATG: iteration i = " << i << endL;
+
+	 tau_i = tau_i * (1 - epsi);
+	 g.logg << "ATG: iteration tau_i = " << tau_i << endL;
+	 threshold_sample( A, k, tau_i, epsi, delta / 2, A, false, idsA );
+	 
+	 threshold_sample( B, k, tau_i, epsi, delta / 2, A, true , idsB );
+	 random_set( C, idsA );
+	 
+	 size_t tempVal = compute_valSet( nEvals, g, A );
+	 if ( tempVal > solVal ) {
+	    solVal = tempVal;
+	    sol = A;
+	 }
+
+	 tempVal = compute_valSet( nEvals, g, B );
+	 if ( tempVal > solVal ) {
+	    solVal = tempVal;
+	    sol = B;
+	 }
+
+	 tempVal = compute_valSet( nEvals, g, C );
+	 if ( tempVal > solVal ) {
+	    solVal = tempVal;
+	    sol = C;
+	 }
+
+	 if (get_size_set( sol ) == k) {
+	    //We can quit now.
+	    break;
+	 }
+      }
+
+      g.logg << "ATG: solVal=" << solVal << endL;
+      g.logg << "ATG: queries=" << nEvals << endL;
+      
+   }
+};
+
+class Blits {
+   size_t k;
+   tinyGraph& g;
+   double epsi;
+   size_t r;
+   size_t OPT; //guess for opt
+   size_t nSamps = 30;
+   size_t nEvals = 0;
+public:
+   Blits( Args& args ) : g( args.g ) {
+      k = args.k;
+      //OPT = 130180;
+      OPT = g.m;
+      epsi = args.epsi;
+      r = 10; //20/ epsi * log( g.n ) / log ( 1 + epsi /2 );
+      g.logg << "Blits initialized, r = " << r << endL;
+   }
+
+   size_t sizeSet( vector<bool>& S ) {
+      size_t ssize = 0;
+      for (size_t i = 0; i < g.n; ++i) {
+	 if (S[i])
+	    ++ssize;
+      }
+      return ssize;
+   }
+   
+   void sampleUX( vector<bool>& R, vector<bool>& X ) {
+      //g.logg << "Starting sampleUX..." << endL;
+      uniform_int_distribution<size_t> dist(0, g.n-1);
+      R.assign(g.n, false);
+      //      cerr << sizeSet( X ) << ' ' << k / r << endl;
+      for (size_t i = 0; i < k / r; ++i) {
+	 size_t pos;
+	 do {
+	    pos = dist( gen );
+	 } while (!X[ pos ] || R[ pos ] );
+	 R[ pos ] = true;
+      }
+      //g.logg << "Finished sampleUX." << endL;
+   }
+   
+   double Delta( node_id a, vector<bool>& S, vector<bool>& X ) {
+      double avg = 0.0;
+      for (size_t i = 0; i < nSamps; ++i) {
+	 vector<bool> R;
+	 if (sizeSet(X) >= k/r)
+	    sampleUX( R, X );
+	 else
+	    R = X;
+	 R[a] = false;
+	 vector<bool> RcupS;
+	 setunion( RcupS, R, S );
+	 //RcupS[a] = false;
+	 avg += marge( nEvals, g, a, RcupS );
+      }
+      
+      return avg / nSamps;
+   }
+
+   double exMarge( vector<bool>& S, vector<bool>& Xplus, vector<bool>& X ) {
+      double sum = 0.0;
+      for (size_t i = 0; i < nSamps; ++i) {
+	 vector<bool> R;
+	 sampleUX( R, X );
+	 vector<bool> base;
+	 vector<bool> larger;
+	 setintersection( base, R, Xplus );
+	 int64_t valBase = compute_valSet( nEvals,  g, S );
+	 setunion( larger, S, base );
+	 int64_t valLarger = compute_valSet( nEvals,  g, larger );
+	 sum += (valLarger - valBase);
+      }
+      
+      return sum / nSamps;
+   }
+   
+   bool sieve( vector<bool>& res, vector<bool>& A, size_t i ) {
+      g.logg << "Starting sieve, iteration " << i << endL;
+      vector<bool> X( g.n, true );
+      res.assign( g.n, false );
+      size_t sizeX = g.n;
+      double base = 1.0 - 1 / static_cast<double>(r);
+      double t = (0.5 - epsi / 4)*( pow( base, i - 1)*(1 - epsi / 2.0) * OPT - compute_valSet( nEvals,  g, A ));
+      //if (t < 0)
+      //return false;
+      g.logg << "t = " << t << endL;
+      size_t sizeXprior = 0;
+      while (sizeX > k) {
+	 g.logg << "Size of X: " << sizeX << endL;
+	 vector<bool> Xplus(g.n, false);
+	 for (size_t a = 0; a < g.n; ++a) {
+	    if (Delta(a, A, X) >= 0.0)
+	       Xplus[a] = true;
+	 }
+	 
+	 if (sizeXprior == sizeX) {
+	    g.logg << WARN <<"SizeX is not decreasing..." << endL;
+	    g.logg << INFO;
+
+	    vector<bool> R;
+	    sampleUX( R, X );
+	    setintersection( res, R, Xplus );
+	    return true;
+
+	    //	    return false;
+	 }
+
+	 double exMar = exMarge( A, Xplus, X );
+	 g.logg << INFO <<"exMarge: " << exMar << endL;
+	 g.logg << INFO <<"t/r: " << t/r << endL;
+	 if ( exMar >= t / r ) {
+	    vector<bool> R;
+	    sampleUX( R, X );
+	    setintersection( res, R, Xplus );
+	    return true;
+	 }
+
+	 Xplus.assign(g.n, false);
+	 sizeXprior = sizeX;
+	 sizeX = 0;
+	 for (size_t a = 0; a < g.n; ++a) {
+	    if (Delta(a, A, X) >= (1 + epsi / 4)*t/k ) {
+	       Xplus[a] = true;
+	       ++sizeX;
+	    }
+	 }
+	 X = Xplus;
+      }
+      
+      g.logg << "Size of X: " << sizeX << endL;
+      
+      vector<bool> Xplus(g.n, false);
+      for (size_t a = 0; a < g.n; ++a) {
+	 if (Delta(a, A, X) >= 0.0)
+	    Xplus[a] = true;
+      }
+      vector<bool> R;
+      if (sizeSet(X) >= k / r)
+	 sampleUX( R, X );
+      else
+	 R = X;
+
+      setintersection( res, R, Xplus );
+      return true;
+   }
+   
+   long leastBenefit( node_id u, vector<bool>& set ) {
+      set[u] = false;
+      long m = marge( nEvals, g, u, set );
+      set[u] = true;
+      return m;
+   }
+   
+      void setunion( vector<bool>& res, vector<bool>& set1, vector<bool>& set2) {
+      res.assign(g.n , false);
+      for (node_id u = 0; u < g.n; ++u) {
+	 if (set1 [u] || set2[u] ) {
+	    res[u] = true;
+	 }
+      }
+   }
+
+   void setintersection( vector<bool>& res, vector<bool>& set1, vector<bool>& set2) {
+      res.assign(g.n , false);
+      for (node_id u = 0; u < g.n; ++u) {
+	 if (set1 [u] && set2[u] ) {
+	    res[u] = true;
+	 }
+      }
+   }
+   
+   void run() {
+      if (r > k) {
+	 g.logg << ERROR << "r > k" << endL;
+	 g.logg << "Exiting Blits." << endL;
+	 g.logg << INFO;
+	 return;
+      }
+      
+      vector< vector<bool > > vSols;
+      vector<bool> S(g.n,false);
+      while ( OPT > compute_valSet( nEvals,  g, S ) ) {
+	 g.logg << "Starting Blits, with OPT estimate: " << OPT << endL;
+      
+	 S.assign(g.n, false);
+	 for (size_t i = 1; i <= r; ++i) {
+	    vector<bool> step;
+	    if (!sieve( step, S, i ))
+	       break;
+	    vector<bool> Splus;
+	    setunion ( Splus, S, step );
+	    S = Splus;
+	 }
+
+	 vSols.push_back( S );
+	 OPT = OPT*(1 - epsi);
+      }
+      
+      vector<bool> Smax( g.n, false );
+      size_t valS = 0;
+      for (size_t i = 0; i < vSols.size(); ++i) {
+	 if (compute_valSet( nEvals,  g, vSols[i] ) > valS) {
+	    valS = compute_valSet( nEvals,  g, vSols[i] );
+	    Smax = vSols[i];
+	 }
+      }
+
+      g.logg << "S: " << valS << endL;
+      g.logg << "Evals: " << nEvals << endL;
+
+      reportResults( nEvals, valS );
+   }
+};
+
+class Tg {
+   size_t k;
+   tinyGraph& g;
+   size_t nEvals = 0;
+public:
+   Tg( Args& args ) : g( args.g ) {
+      k = args.k;
+   }
+
+   long leastBenefit( node_id u, vector<bool>& set ) {
+      set[u] = false;
+      long m = marge( nEvals, g, u, set );
+      set[u] = true;
+      return m;
+   }
+   
+
+   void uncMax( vector<bool>& set ) {
+      vector<bool> all(set);
+      vector<bool> none( g.n, false );
+      
+      for (size_t u = 0; u < g.n; ++u) {
+	 if (set[u]) {
+	    double margeA = marge( nEvals, g, u, none ); //adding u to A
+	    vector<bool> allMinus ( all );
+	    allMinus[u] = false;
+	    double margeB = static_cast<double>(compute_valSet(nEvals, g, allMinus)) - compute_valSet(nEvals,g, all );
+	    if (margeA >= margeB) {
+	       none[u] = true;
+	    } else {
+	       all[u] = false;
+	    }
+	 }
+      }
+
+      set = all;
+   }
+   
+   void run() {
+      vector<bool> A( g.n, false );
+
+      double maxGain;
+      node_id maxIdx;
+      MyPair tmp;
+
+      for (size_t i = 0; i < k; ++i) {
+	 maxGain = -1.0 * g.n * g.n;
+	 for (node_id u = 0; u < g.n; ++u) {
+
+	    if (marge( nEvals, g,u,A) > maxGain) {
+
+	       maxIdx = u;
+	       maxGain = marge( nEvals, g,u,A);
+	    }
+	 }
+
+	 A[maxIdx] = true;
+      }
+
+      vector<bool> B( g.n, false );
+      for (size_t i = 0; i < k; ++i) {
+	 maxGain = -1.0 * g.n * g.n;
+	 for (node_id u = 0; u < g.n; ++u) {
+	    if (! A[ u ] ) {
+	       if ( marge( nEvals, g,u,B) > maxGain ) {
+		  maxIdx = u;
+		  maxGain = marge( nEvals, g,u,B);
+	       }
+	    }
+	 }
+
+	 B[maxIdx] = true;
+      }
+
+      vector<bool> Amax = A;
+      vector<bool> Bmax = B;
+
+      uncMax( Amax );
+      uncMax( Bmax );
+
+      vector< size_t > vals;
+      vals.push_back( compute_valSet( nEvals,  g, A ) );
+      vals.push_back( compute_valSet( nEvals,  g, Amax ) );
+      vals.push_back( compute_valSet( nEvals,  g, B ) );
+      vals.push_back( compute_valSet( nEvals,  g, Bmax ) );
+      size_t maxVal = 0;
+      g.logg << "Vals: ";
+      for (size_t i = 0; i < vals.size(); ++i) {
+	 g.logg << vals[i] << " ";
+	 if (vals[i] > maxVal) {
+	    maxVal = vals[i];
+	 }
+      }
+      
+      g.logg << endL;
+      g.logg << "Evals: " << nEvals << endL;
+
+      reportResults( nEvals, maxVal );
+   }
+};
+
+
+
+#endif
