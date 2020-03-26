@@ -24,7 +24,9 @@ void print_help() {
        << "-o <outputFileName>" << endl
        << "-N <repetitions>" << endl
        << "-e <epsilon (default 0.1)>" << endl
-       << "-d <delta (default 0.1)>" << endl;
+       << "-d <delta (default 0.1)>" << endl
+       << "-v [verbose]>" << endl
+       << "-f [fast mode (for ATG)]>" << endl;
 }
 
 void parseArgs( int argc, char** argv, Args& arg ) {
@@ -38,8 +40,14 @@ void parseArgs( int argc, char** argv, Args& arg ) {
 
   string sarg;
   
-  while ((c = getopt( argc, argv, ":G:k:IQTRlSBAFN:o:e:d:") ) != -1) {
+  while ((c = getopt( argc, argv, ":G:k:IQTRlSBAFN:o:e:d:vf") ) != -1) {
     switch(c) {
+    case 'f':
+      arg.fast = true;
+      break;
+    case 'v':
+      arg.g.logg.set_level( DEBUG );
+      break;
     case 'e':
        sarg.assign( optarg );
        arg.epsi = stod( sarg );

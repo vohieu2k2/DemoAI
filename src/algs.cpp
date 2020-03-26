@@ -30,6 +30,7 @@ struct Args {
    double epsi = 0.1;
    double delta = 0.1;
    size_t N = 1;
+  bool fast = false;
 };
 
 class MyPair {
@@ -816,17 +817,23 @@ public:
    size_t OPT; //guess for opt
    size_t nSamps = 30;
    size_t nEvals = 0;
-
+  bool fast = false;
+  
    Atg( Args& args ) : g( args.g ) {
       k = args.k;
       //OPT = 130180;
       OPT = g.m;
       epsi = args.epsi;
       delta = args.delta;
+      fast = args.fast;
       g.logg << "ATG initialized:" << endL;
       g.logg << "epsi=" << epsi << endL;
       g.logg << "delta=" << delta << endL;
       g.logg << "k=" << k << endL;
+      if (fast) {
+	g.logg << WARN << "Fast mode enabled. Theoretical guarantees will not hold!" << endL;
+	
+      }
    }
 
    void sampleUt( vector<bool>& R, vector<bool>& A, size_t t ) {
@@ -938,6 +945,7 @@ public:
 			  bool bexcl,
 			  vector< size_t >& idsS ) {
       double hatepsi = epsi / 3;
+      g.logg << DEBUG << "hatepsi = " << hatepsi << endL;
       size_t r = log( 2*g.n / delta ) + 1;
       size_t m = log( k ) / hatepsi + 1;
       double hatdelta = delta / (2*r*(m+1));
@@ -962,6 +970,7 @@ public:
       for (unsigned j = 0; j < r; ++j) {
 	 filter( A, S, tau, idsA );
 	 g.logg << DEBUG << "Post filter size of A: " << idsA.size() << endL;
+	 g.logg << DEBUG << "(1 - hatepsi): " << 1 - hatepsi << endL;
 	 if (idsA.size() == 0) {
 	    return;
 	 } else {
@@ -984,6 +993,16 @@ public:
 	    g.logg << TRACE << "tmpT t: " << tmpT << " " << t << endL;
 	    size_t ell = 16*( log( 2 / hatdelta )/ hatepsi / hatepsi + 1);
 	    double ubar = 0;
+
+	    g.logg << TRACE << "Samps required for reduced-mean: " << ell << endL;
+	    if (fast) {
+	      if (ell > 100)
+		ell = 100;
+
+	      g.logg << TRACE << "Fast mode, using ell = " << ell << endL;
+	    }
+	    
+	    
 	    if ( t > 1) {
 	       for (size_t l = 0; l < ell; ++l) {
 
@@ -992,9 +1011,13 @@ public:
 	       ubar /= ell;
 	       if (ubar <= 1 - 1.5*hatepsi)
 		  break;
-	    } else {
-	       
-	    }
+
+	       if (t == idsA.size()) {
+		 //all possible elements are good in expectation
+		 //can break
+		 break;
+	       }
+	    } 
 	 }
 
 	 if ( t > k - sizeS )
@@ -1003,7 +1026,7 @@ public:
 	 
 	 sampleUt( idsT, idsA, t );
 	 g.logg << DEBUG << "Adding random set of size: "
-		<< idsT.size() << endL;
+		<< t << " " << idsT.size() << endL;
 	 for (size_t i = 0; i < t; ++i){
 	    if (!S[ idsT[i] ]) {
 	       S[ idsT[i] ] = true;
@@ -1038,7 +1061,7 @@ public:
       vector<bool> sol( g.n, false );
       size_t solVal = 0;
 
-      g.logg.set_level( DEBUG );
+      //g.logg.set_level( DEBUG );
       
       //Get max singleton
       g.logg << "ATG: Determining max singleton..." << endL;
@@ -1059,49 +1082,69 @@ public:
       double tau_i = M / (1 - epsi);
 
       g.logg << "ATG: m = " << m << endL;
-      
-      for (unsigned i = 0; i <= m; ++i) {
-	 if (m < solVal * (1 - epsi) / (6*k)) {
-	    //solVal is a lower bound on OPT and
-	    //telling us we can stop now.
-	    break;
-	 }
-	 
-	 g.logg << "ATG: iteration i = " << i << endL;
 
-	 tau_i = tau_i * (1 - epsi);
-	 g.logg << "ATG: iteration tau_i = " << tau_i << endL;
+     
+      for (unsigned i = 0; i <= m; ++i) {
+	g.logg << INFO << "ATG: iteration i = " << i << endL;
+
+	tau_i = tau_i * (1 - epsi);
+	g.logg << INFO << "ATG: iteration tau_i = " << tau_i << endL;
+
+	g.logg << INFO << "ATG: current solVal = " << solVal << endL;
+	g.logg << "ATG: Current size of solution = " << get_size_set( sol ) << endL;
+
+	g.logg << "ATG: Stopping condition: " << solVal * (1 - epsi) / (6*k) << endL;
+	
+	 // if (tau_i < solVal * (1 - epsi) / (6*k)) {
+	 //    //solVal is a lower bound on OPT and
+	 //    //telling us we can stop now.
+	 //    break;
+	 // }
+	 
 	 threshold_sample( A, k, tau_i, epsi, delta / 2, A, false, idsA );
 	 
 	 threshold_sample( B, k, tau_i, epsi, delta / 2, A, true , idsB );
 	 random_set( C, idsA );
+
+	 bool replaced = false;
 	 
 	 size_t tempVal = compute_valSet( nEvals, g, A );
-	 if ( tempVal > solVal ) {
+
+	 g.logg << DEBUG << "f(A)=" << tempVal << endL;
+	 if ( tempVal >= solVal ) {
 	    solVal = tempVal;
 	    sol = A;
+	    replaced = true;
 	 }
 
 	 tempVal = compute_valSet( nEvals, g, B );
-	 if ( tempVal > solVal ) {
+	 g.logg << DEBUG << "f(B)=" << tempVal << endL;
+	 if ( tempVal >= solVal ) {
 	    solVal = tempVal;
 	    sol = B;
+	    replaced = true;
 	 }
 
 	 tempVal = compute_valSet( nEvals, g, C );
-	 if ( tempVal > solVal ) {
+	 g.logg << DEBUG << "f(C)=" << tempVal << endL;
+	 if ( tempVal >= solVal ) {
 	    solVal = tempVal;
 	    sol = C;
+	    replaced = true;
 	 }
 
+	 if (!replaced)
+	   break;
+	 
 	 if (get_size_set( sol ) == k) {
 	    //We can quit now.
 	    break;
 	 }
       }
 
-      g.logg << "ATG: solVal=" << solVal << endL;
-      g.logg << "ATG: queries=" << nEvals << endL;
+      g.logg << INFO << "ATG: solVal=" << solVal << endL;
+      g.logg << INFO << "ATG: queries=" << nEvals << endL;
+      g.logg << INFO << "ATG: solSize=" << get_size_set( sol ) << endL;
       
    }
 };
