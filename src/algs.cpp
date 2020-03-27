@@ -831,7 +831,7 @@ public:
       g.logg << "delta=" << delta << endL;
       g.logg << "k=" << k << endL;
       if (fast) {
-	g.logg << WARN << "Fast mode enabled. Theoretical guarantees will not hold!" << endL;
+	 g.logg << WARN << "Fast mode enabled. Theoretical guarantees will not hold!" << endL << INFO;
 	
       }
    }
@@ -1068,18 +1068,37 @@ public:
 
       //g.logg.set_level( DEBUG );
       
-      //Get max singleton
-      g.logg << "ATG: Determining max singleton..." << endL;
-      size_t M = 0;
-      //node_id a0;
+      // //Get max singleton
+      // g.logg << "ATG: Determining max singleton..." << endL;
+      // size_t M = 0;
+      // //node_id a0;
 
-      for (size_t x = 0; x < g.n; ++x) {
-	 if ( marge( nEvals, g, x, A ) > static_cast<signed long>(M) ) {
-	    //a0 = x;
-	    M = marge( nEvals, g, x, A );
-	 }
+      // for (size_t x = 0; x < g.n; ++x) {
+      // 	 if ( marge( nEvals, g, x, A ) > static_cast<signed long>(M) ) {
+      // 	    //a0 = x;
+      // 	    M = marge( nEvals, g, x, A );
+      // 	 }
+      // }
+
+      vector< MyPair > margeGains;
+      MyPair tmp;
+
+      margeGains.clear();
+      for (node_id u = 0; u < g.n; ++u) {
+	 tmp.gain = marge( nEvals, g,u, A);
+	 tmp.u = u;
+	 margeGains.push_back( tmp );
       }
 
+      size_t topKgains = 0;
+      std::sort( margeGains.begin(), margeGains.end(), revgainLT() );
+      for (size_t i = 0; i < k; ++i) {
+	 topKgains += margeGains[ i ].gain;
+      }
+
+      size_t M = topKgains / k;
+
+      g.logg << "ATG: topKgains = " << topKgains << endL;
       g.logg << "ATG: M = " << M << endL;
 
       size_t m = log( 1.0 / (6 * k) ) / log( 1 - epsi );
@@ -1098,7 +1117,7 @@ public:
 	g.logg << INFO << "ATG: current solVal = " << solVal << endL;
 	g.logg << "ATG: Current size of solution = " << get_size_set( sol ) << endL;
 
-	g.logg << "ATG: Stopping condition: " << solVal * (1 - epsi) / (6*k) << endL;
+	//	g.logg << "ATG: Stopping condition: " << solVal * (1 - epsi) / (6*k) << endL;
 	
 	 // if (tau_i < solVal * (1 - epsi) / (6*k)) {
 	 //    //solVal is a lower bound on OPT and
@@ -1140,10 +1159,16 @@ public:
 
 	 if (!replaced)
 	   break;
-	 
-	 if (get_size_set( sol ) == k) {
+
+	 if (get_size_set( sol ) == k ) {
 	    //We can quit now.
 	    break;
+	 }
+
+	 if (fast) {
+	    //	    if (solVal > topKgains / 6.0) {
+	    //	       break;
+	    //	    }
 	 }
       }
 
@@ -1417,17 +1442,15 @@ public:
       vector<bool> sol( g.n, false );
       size_t solVal = 0;
 
-      //g.logg.set_level( DEBUG );
-      
       //Get max singleton
       g.logg << "ATG: Determining max singleton..." << endL;
       size_t M = 0;
       //node_id a0;
 
       for (size_t x = 0; x < g.n; ++x) {
-	 if ( marge( nEvals, g, x, A ) > static_cast<signed long>(M) ) {
-	    M = marge( nEvals, g, x, A );
-	 }
+      	 if ( marge( nEvals, g, x, A ) > static_cast<signed long>(M) ) {
+      	    M = marge( nEvals, g, x, A );
+      	 }
       }
 
       g.logg << "LATG: M = " << M << endL;

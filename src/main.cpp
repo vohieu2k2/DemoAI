@@ -47,7 +47,7 @@ void parseArgs( int argc, char** argv, Args& arg ) {
       arg.fast = true;
       break;
     case 'v':
-      arg.g.logg.set_level( DEBUG );
+      arg.g.logg.set_level( TRACE );
       break;
     case 'e':
        sarg.assign( optarg );
@@ -219,6 +219,10 @@ void outputResults( Args& args ) {
    } else {
       //allResults.print( cout );
    }
+
+   args.g.logg << INFO << "CPU time elapsed (s): " << args.tElapsed << endL;
+   args.g.logg << INFO << "Wall time elapsed (s): " << args.wallTime << endL;
+   
 }
 
 int main(int argc, char** argv) {
