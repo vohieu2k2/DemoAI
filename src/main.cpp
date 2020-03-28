@@ -14,6 +14,7 @@ void print_help() {
   cout << "-G <graph filename in binary format>" << endl
        << "-k <cardinality constraint>" << endl
        << "-A [run ATG]" << endl
+       << "-M [run ANM]" << endl
        << "-L [run LATG]" << endl
        << "-I [run InterlaceGreedy]" << endl
        << "-F [run FastInterlaceGreedy]" << endl
@@ -41,7 +42,7 @@ void parseArgs( int argc, char** argv, Args& arg ) {
 
   string sarg;
   
-  while ((c = getopt( argc, argv, ":G:k:IQTRlSBALFN:o:e:d:vf") ) != -1) {
+  while ((c = getopt( argc, argv, ":G:k:IMQTRlSBALFN:o:e:d:vf") ) != -1) {
     switch(c) {
     case 'f':
       arg.fast = true;
@@ -102,6 +103,9 @@ void parseArgs( int argc, char** argv, Args& arg ) {
        break;
     case 'L':
        arg.alg = LATG;
+       break;
+    case 'M':
+       arg.alg = ANM;
        break;
     case '?':
       print_help();
@@ -176,9 +180,17 @@ void runAlg( Args& args ) {
 
       case ATG:
 	 {
-	    args.logg(INFO, "Starting TripleGreedy..." );
+	    args.logg(INFO, "Starting ATG..." );
 	    Atg atg( args );
 	    atg.run();
+	 }
+	 break;
+
+      case ANM:
+	 {
+	    args.logg(INFO, "Starting ANM..." );
+	    Anm anm( args );
+	    anm.run();
 	 }
 	 break;
 

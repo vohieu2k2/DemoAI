@@ -11,7 +11,7 @@
 using namespace std;
 using namespace mygraph;
 
-enum Algs {IG=0, TG, RG, SG, BLITS, FIG, FRG, ATG, LATG};
+enum Algs {IG=0, TG, RG, SG, BLITS, FIG, FRG, ATG, LATG, ANM};
 
 uniform_real_distribution< double > unidist(0, 1);
 
@@ -104,6 +104,266 @@ size_t compute_valSet( size_t& nEvals, tinyGraph& g, vector<bool>& set ) {
 void reportResults( size_t nEvals, size_t obj ) {
    allResults.add( "obj", obj );
    allResults.add( "nEvals", nEvals );
+}
+
+void filter( size_t& nEvals,
+	     tinyGraph& g,
+	     vector< bool >& A,
+	     vector< bool >& S,
+	     double tau,
+	     vector< size_t >& idsA ) {
+  vector< size_t > newIdsA;
+  for (size_t i = 0; i < idsA.size(); ++i) {
+    size_t x = idsA[i];
+    if (S[x]) {
+      // filter x
+      A[x] = false;
+    } else {
+      if (marge( nEvals, g, x, S ) < tau) {
+	//filter x
+	A[x] = false;
+      } else {
+	//keep x
+	newIdsA.push_back( x );
+      }
+    }
+  }
+
+  idsA.swap( newIdsA );
+}
+
+void random_set( tinyGraph& g, vector< bool >& C, vector< size_t >& A ) {
+  C.assign( g.n, false );
+  uniform_int_distribution<size_t> dist(0, A.size() - 1);
+  size_t size_of_c = dist( gen );
+  double prob = 1.0 / size_of_c;
+      
+  for (size_t i = 0; i < A.size(); ++i) {
+    if (unidist(gen) < prob) {
+      C[ A[i] ] = true;
+    }
+  }
+}
+
+void random_set( tinyGraph& g, vector< size_t >& C, vector< size_t >& A ) {
+  C.clear();
+  uniform_int_distribution<size_t> dist(0, A.size() - 1);
+  size_t size_of_c = dist( gen );
+  double prob = 1.0 / size_of_c;
+      
+  for (size_t i = 0; i < A.size(); ++i) {
+    if (unidist(gen) < prob) {
+      C.push_back( A[i] );
+    }
+  }
+}
+
+void unc_max( size_t& nEvals, tinyGraph& g, vector< size_t >& A, double epsi, double delta, vector< size_t >& result ) {
+  result.clear();
+  size_t ell = (log( 1 /delta ) )/ (log( 1 + (4.0/3)*epsi )) + 1;
+  vector< bool > tmp;
+  vector< bool > max;
+  size_t tmpVal = 0;
+  size_t maxVal = 0;
+  for (size_t i = 0; i < ell; ++i) {
+    random_set( g, tmp, A );
+    tmpVal = compute_valSet( nEvals, g, tmp );
+    if (tmpVal >= maxVal) {
+      max = tmp;
+      maxVal = tmpVal;
+    }
+  }
+
+  for (size_t i = 0; i < g.n; ++i) {
+    if (max[i])
+      result.push_back(i);
+    
+  }
+}
+
+void sampleUt( vector<size_t>& R, vector<size_t>& A, size_t t ) {
+  //g.logg << "Starting sampleUX..." << endL;
+  R.clear();
+  uniform_int_distribution<size_t> dist(0, A.size() - 1);
+  vector< bool > alreadySampled( A.size(), false );
+
+  for (size_t i = 0; i < t; ++i) {
+    size_t pos;
+    do {
+      pos = dist( gen );
+    } while ((alreadySampled[pos]) );
+
+    alreadySampled[pos] = true;
+    R.push_back( A[pos] );
+  }
+}
+
+unsigned samp_Dt( size_t& nEvals,
+		  tinyGraph& g,
+		  vector< size_t >& idsA,
+		  vector< size_t >& idsS,
+		  size_t t,
+		  double tau ) {
+  vector< size_t > idsT;
+  vector< bool > T( g.n, false );
+  uniform_int_distribution<size_t> dist(0, idsA.size() - 1);
+  while (idsT.size() < t - 1) {
+    size_t pos;
+    pos = dist( gen );
+    if ( !T[ idsA[ pos ] ] ) {
+      T[ idsA[ pos ] ] = true;
+      idsT.push_back( idsA[ pos ] );
+    }
+  }
+
+  size_t x = 0;
+  do {
+    size_t pos = dist( gen );
+    x = idsA[ pos ];
+  } while ( T[ x ] );
+
+  vector< bool > ScupT(g.n, false);
+      
+  for (size_t i = 0; i < idsS.size(); ++i) {
+    ScupT[idsS[i]] = true;
+  }
+  for (size_t i = 0; i < idsT.size(); ++i) {
+    ScupT[idsT[i]] = true;
+  }
+
+  if ( marge( nEvals, g, x, ScupT ) >= tau ) {
+
+    return 1;
+  }
+
+  return 0;
+}
+
+vector< bool > emptyBoolVector;
+vector< size_t > emptySize_tVector;
+
+void threshold_sample( size_t& nEvals,
+		       tinyGraph& g,
+		       vector< bool >& S,
+		       size_t k,
+		       double tau,
+		       double epsi,
+		       double delta,
+		       vector< bool >& exclude,
+		       bool bexcl,
+		       vector< size_t >& idsS,
+		       bool fast,
+		       bool returnA = false,
+		       vector< bool >& retA = emptyBoolVector,
+		       vector< size_t >& retidsA = emptySize_tVector) {
+  double hatepsi;
+  if (!fast) {
+    hatepsi = epsi / 3;
+  } else {
+    hatepsi = epsi;
+  }
+  g.logg << DEBUG << "hatepsi = " << hatepsi << endL;
+  size_t r = log( 2*g.n / delta ) + 1;
+  size_t m = log( k ) / hatepsi + 1;
+  double hatdelta = delta / (2*r*(m+1));
+
+
+  size_t sizeS = 0;
+  vector< bool > A( g.n, true );
+  vector< size_t > idsA;
+  //vector< size_t > idsS;
+
+  vector< size_t > idsT;
+  for (size_t i = 0; i < g.n; ++i) {
+    if (bexcl) {
+      if (!exclude[i])
+	idsA.push_back(i);
+      else
+	A[i] = false;
+    } else
+      idsA.push_back( i );
+  }
+
+  for (unsigned j = 0; j < r; ++j) {
+    filter( nEvals, g, A, S, tau, idsA );
+    g.logg << DEBUG << "Post filter size of A: " << idsA.size() << endL;
+    //	 g.logg << DEBUG << "(1 - hatepsi): " << 1 - hatepsi << endL;
+    if (idsA.size() == 0) {
+      return;
+    } else {
+      if (idsA.size() == 1) {
+	S[ idsA[0] ] = true;
+	idsS.push_back( idsA[0] );
+	++sizeS;
+	return;
+      }
+    }
+    double tmpT = 1;//= (1+hatepsi)^i
+    size_t t = 0;
+    for (unsigned i = 0; i < m; ++i) {
+	    
+      t = idsA.size();
+      if (t > static_cast<size_t>(tmpT))
+	t = static_cast<size_t>(tmpT);
+      tmpT = tmpT * (1 + hatepsi);
+
+      g.logg << TRACE << "tmpT t: " << tmpT << " " << t << endL;
+      size_t ell = 16*( log( 2 / hatdelta )/ hatepsi / hatepsi + 1);
+      double ubar = 0;
+
+      g.logg << TRACE << "Samps required for reduced-mean: " << ell << endL;
+      if (fast) {
+	if (ell > 100)
+	  ell = 100;
+
+	g.logg << TRACE << "Fast mode, using ell = " << ell << endL;
+      }
+	    
+	    
+      if ( t > 1) {
+	for (size_t l = 0; l < ell; ++l) {
+
+	  ubar += samp_Dt(nEvals, g, idsA, idsS, t, tau );
+	}
+	ubar /= ell;
+	if (ubar <= 1 - 1.5*hatepsi)
+	  break;
+
+	if (t == idsA.size()) {
+	  //all possible elements are good in expectation
+	  //can break
+	  break;
+	}
+      } 
+    }
+
+    if ( t > k - sizeS )
+      t = k - sizeS;
+
+	 
+    sampleUt( idsT, idsA, t );
+    g.logg << DEBUG << "Adding random set of size: "
+	   << t << " " << idsT.size() << endL;
+    for (size_t i = 0; i < t; ++i){
+      if (!S[ idsT[i] ]) {
+	S[ idsT[i] ] = true;
+	++sizeS;
+	idsS.push_back( idsT[i] );
+      }
+	    
+    }
+    if (sizeS >= k) {
+      if (returnA) {
+	retA.swap( A );
+	retidsA.swap( idsA );
+      }
+      return;
+    }
+  }
+  if (returnA) {
+    retA.swap( A );
+    retidsA.swap( idsA );
+  }
 }
 
 
@@ -807,6 +1067,141 @@ public:
    }
 };
 
+class Anm {
+public:
+   size_t k;
+   tinyGraph& g;
+   double epsi;
+   double delta;
+   size_t r;
+   size_t OPT; //guess for opt
+   size_t nSamps = 30;
+   size_t nEvals = 0;
+  bool fast = false;
+  
+   Anm( Args& args ) : g( args.g ) {
+      k = args.k;
+      //OPT = 130180;
+      OPT = g.m;
+      epsi = args.epsi;
+      delta = args.delta;
+      fast = args.fast;
+      g.logg << "ATG initialized:" << endL;
+      g.logg << "epsi=" << epsi << endL;
+      g.logg << "delta=" << delta << endL;
+      g.logg << "k=" << k << endL;
+      if (fast) {
+	 g.logg << WARN << "Fast mode enabled. Theoretical guarantees will not hold!" << endL << INFO;
+	
+      }
+   }
+
+   size_t get_size_set( vector< bool >& S ) {
+      size_t sizeSol = 0;
+      for (size_t i = 0; i < g.n; ++i)
+	 if (S[i])
+	    ++sizeSol;
+      return sizeSol;
+   }
+   
+  void run() {
+      g.logg << "ANM: starting run..." << endL;
+      vector<bool> sol( g.n, false );
+      size_t solVal = 0;
+
+      vector< MyPair > margeGains;
+      MyPair tmp;
+
+      margeGains.clear();
+      for (node_id u = 0; u < g.n; ++u) {
+	 tmp.gain = marge( nEvals, g,u, sol);
+	 tmp.u = u;
+	 margeGains.push_back( tmp );
+      }
+
+      size_t topKgains = 0;
+      std::sort( margeGains.begin(), margeGains.end(), revgainLT() );
+      for (size_t i = 0; i < k; ++i) {
+	 topKgains += margeGains[ i ].gain;
+      }
+
+      size_t M = margeGains[0].gain; //topKgains / k;
+
+      size_t r = 0;
+      if (!fast) {
+	epsi = epsi / 6.0;
+	r = log(  k ) / epsi + 1;
+	delta = delta / (2*(r + 1));
+      } else {
+	r = log(  k ) / epsi + 1;
+      }
+
+      double c_1 = 1.0 / 7;
+      double c_3 = 3;
+      
+      g.logg << "topKgains = " << topKgains << endL;
+      g.logg << "M = " << M << endL;
+
+
+      double tau_i = M / (1 - epsi) *c_1;
+
+      g.logg << "r = " << r << endL;
+
+     
+      for (unsigned i = 0; i <= r; ++i) {
+	vector<bool> A( g.n, false );
+	vector<bool> S( g.n, false );
+	vector<size_t> idsA;
+	vector<size_t> idsS;
+
+	threshold_sample( nEvals, g, S, k, tau_i, epsi, delta / 2, A, false, idsS, fast, true, A, idsA );
+	size_t tempVal = compute_valSet( nEvals, g, S );
+	if ( tempVal >= solVal ) {
+	    solVal = tempVal;
+	    sol = S;
+	 }
+	
+	tau_i = tau_i * (1 - epsi);
+
+	size_t sizeA = idsA.size();
+
+	if (sizeA < c_3 * k) {
+	  vector< size_t > idsU;
+	  //random_set(g, idsU, idsA );
+	  unc_max( nEvals, g, idsA, epsi, delta, idsU );
+	  if (idsU.size() > k) {
+	    vector< size_t > idsD;
+	    sampleUt( idsD, idsU, k );
+	    idsU = idsD;
+	  }
+
+	  random_shuffle ( idsU.begin(), idsU.end() );
+
+	  vector <bool> empty( g.n, false );
+	  vector <bool> prefix( g.n, false );
+	  size_t tempVal = 0;
+	  
+	  for (size_t i = 0; i < idsU.size(); ++i) {
+	    prefix[ idsU[i] ] = true;
+
+	    tempVal = compute_valSet( nEvals, g, prefix );
+
+	    if ( tempVal >= solVal ) {
+	      solVal = tempVal;
+	      sol = prefix;
+	    }
+	  }
+	}
+      }
+
+      g.logg << INFO << "ANM: solVal=" << solVal << endL;
+      g.logg << INFO << "ANM: queries=" << nEvals << endL;
+      g.logg << INFO << "ANM: solSize=" << get_size_set( sol ) << endL;
+
+      reportResults( nEvals, solVal );
+   }
+};
+
 class Atg {
 public:
    size_t k;
@@ -836,98 +1231,6 @@ public:
       }
    }
 
-   void sampleUt( vector<bool>& R, vector<bool>& A, size_t t ) {
-      uniform_int_distribution<size_t> dist(0, g.n-1);
-      R.assign(g.n, false);
-      //      cerr << sizeSet( X ) << ' ' << k / r << endl;
-      for (size_t i = 0; i < t; ++i) {
-	 size_t pos;
-	 do {
-	    pos = dist( gen );
-	 } while (!A[ pos ] || R[ pos ] );
-	 R[ pos ] = true;
-      }
-   }
-   void sampleUt( vector<size_t>& R, vector<size_t>& A, size_t t ) {
-      //g.logg << "Starting sampleUX..." << endL;
-      R.clear();
-      uniform_int_distribution<size_t> dist(0, A.size() - 1);
-      vector< bool > alreadySampled( A.size(), false );
-
-      for (size_t i = 0; i < t; ++i) {
-	 size_t pos;
-	 do {
-	    pos = dist( gen );
-	 } while ((alreadySampled[pos]) );
-
-	 alreadySampled[pos] = true;
-	 R.push_back( A[pos] );
-      }
-   }
-
-   unsigned samp_Dt( vector< size_t >& idsA,
-		     vector< size_t >& idsS,
-		     size_t t,
-		     double tau ) {
-      vector< size_t > idsT;
-      vector< bool > T( g.n, false );
-      uniform_int_distribution<size_t> dist(0, idsA.size() - 1);
-      while (idsT.size() < t - 1) {
-	 size_t pos;
-	 pos = dist( gen );
-	 if ( !T[ idsA[ pos ] ] ) {
-	    T[ idsA[ pos ] ] = true;
-	    idsT.push_back( idsA[ pos ] );
-	 }
-      }
-
-      size_t x = 0;
-      do {
-	 size_t pos = dist( gen );
-	 x = idsA[ pos ];
-      } while ( T[ x ] );
-
-      vector< bool > ScupT(g.n, false);
-      
-      for (size_t i = 0; i < idsS.size(); ++i) {
-	 ScupT[idsS[i]] = true;
-      }
-      for (size_t i = 0; i < idsT.size(); ++i) {
-	 ScupT[idsT[i]] = true;
-      }
-
-      if ( marge( nEvals, g, x, ScupT ) >= tau ) {
-
-	 return 1;
-      }
-
-      return 0;
-   }
-
-   void filter( vector< bool >& A,
-		vector< bool >& S,
-		double tau,
-		vector< size_t >& idsA ) {
-      vector< size_t > newIdsA;
-      for (size_t i = 0; i < idsA.size(); ++i) {
-	 size_t x = idsA[i];
-	 if (S[x]) {
-	    // filter x
-	    A[x] = false;
-	 } else {
-	    if (marge( nEvals, g, x, S ) < tau) {
-	       //filter x
-	       A[x] = false;
-	    } else {
-	       //keep x
-	       newIdsA.push_back( x );
-	    }
-	 }
-      }
-
-      idsA.swap( newIdsA );
-   }
-
    size_t get_size_set( vector< bool >& S ) {
       size_t sizeSol = 0;
       for (size_t i = 0; i < g.n; ++i)
@@ -936,127 +1239,7 @@ public:
       return sizeSol;
    }
    
-   void threshold_sample( vector< bool >& S,
-			  size_t k,
-			  double tau,
-			  double epsi,
-			  double delta,
-			  vector< bool >& exclude,
-			  bool bexcl,
-			  vector< size_t >& idsS ) {
-     double hatepsi;
-     if (!fast) {
-       hatepsi = epsi / 3;
-     } else {
-       hatepsi = epsi;
-     }
-      g.logg << DEBUG << "hatepsi = " << hatepsi << endL;
-      size_t r = log( 2*g.n / delta ) + 1;
-      size_t m = log( k ) / hatepsi + 1;
-      double hatdelta = delta / (2*r*(m+1));
-
-      S.assign( g.n, false );
-      size_t sizeS = 0;
-      vector< bool > A( g.n, true );
-      vector< size_t > idsA;
-      //vector< size_t > idsS;
-      idsS.clear();
-      vector< size_t > idsT;
-      for (size_t i = 0; i < g.n; ++i) {
-	 if (bexcl) {
-	    if (!exclude[i])
-	       idsA.push_back(i);
-	    else
-	       A[i] = false;
-	 } else
-	    idsA.push_back( i );
-      }
-
-      for (unsigned j = 0; j < r; ++j) {
-	 filter( A, S, tau, idsA );
-	 g.logg << DEBUG << "Post filter size of A: " << idsA.size() << endL;
-	 //	 g.logg << DEBUG << "(1 - hatepsi): " << 1 - hatepsi << endL;
-	 if (idsA.size() == 0) {
-	    return;
-	 } else {
-	    if (idsA.size() == 1) {
-	       S[ idsA[0] ] = true;
-	       idsS.push_back( idsA[0] );
-	       ++sizeS;
-	       return;
-	    }
-	 }
-	 double tmpT = 1;//= (1+hatepsi)^i
-	 size_t t = 0;
-	 for (unsigned i = 0; i < m; ++i) {
-	    
-	    t = idsA.size();
-	    if (t > static_cast<size_t>(tmpT))
-	       t = static_cast<size_t>(tmpT);
-	    tmpT = tmpT * (1 + hatepsi);
-
-	    g.logg << TRACE << "tmpT t: " << tmpT << " " << t << endL;
-	    size_t ell = 16*( log( 2 / hatdelta )/ hatepsi / hatepsi + 1);
-	    double ubar = 0;
-
-	    g.logg << TRACE << "Samps required for reduced-mean: " << ell << endL;
-	    if (fast) {
-	      if (ell > 100)
-		ell = 100;
-
-	      g.logg << TRACE << "Fast mode, using ell = " << ell << endL;
-	    }
-	    
-	    
-	    if ( t > 1) {
-	       for (size_t l = 0; l < ell; ++l) {
-
-		  ubar += samp_Dt( idsA, idsS, t, tau );
-	       }
-	       ubar /= ell;
-	       if (ubar <= 1 - 1.5*hatepsi)
-		  break;
-
-	       if (t == idsA.size()) {
-		 //all possible elements are good in expectation
-		 //can break
-		 break;
-	       }
-	    } 
-	 }
-
-	 if ( t > k - sizeS )
-	    t = k - sizeS;
-
-	 
-	 sampleUt( idsT, idsA, t );
-	 g.logg << DEBUG << "Adding random set of size: "
-		<< t << " " << idsT.size() << endL;
-	 for (size_t i = 0; i < t; ++i){
-	    if (!S[ idsT[i] ]) {
-	       S[ idsT[i] ] = true;
-	       ++sizeS;
-	       idsS.push_back( idsT[i] );
-	    }
-	    
-	 }
-	 if (sizeS >= k)
-	    return;
-      }
-   }
-
-   void random_set( vector< bool >& C, vector< size_t >& A ) {
-      C.assign( g.n, false );
-      double prob = 1.0 / A.size();
-      
-      for (size_t i = 0; i < A.size(); ++i) {
-	 if (unidist(gen) < prob) {
-	    C[ A[i] ] = true;
-	 }
-      }
-   }
-   
-   void run() {
+  void run() {
       g.logg << "ATG: starting run..." << endL;
       vector<bool> A( g.n, false );
       vector<size_t> idsA;
@@ -1124,11 +1307,15 @@ public:
 	 //    //telling us we can stop now.
 	 //    break;
 	 // }
-	 
-	 threshold_sample( A, k, tau_i, epsi, delta / 2, A, false, idsA );
-	 
-	 threshold_sample( B, k, tau_i, epsi, delta / 2, A, true , idsB );
-	 random_set( C, idsA );
+
+	A.assign( g.n, false );
+	idsA.clear();
+	threshold_sample( nEvals, g, A, k, tau_i, epsi, delta / 2, A, false, idsA, fast );
+
+	B.assign( g.n, false );
+	idsB.clear();
+	threshold_sample( nEvals, g, B, k, tau_i, epsi, delta / 2, A, true , idsB, fast );
+	random_set( g,C, idsA );
 
 	 bool replaced = false;
 	 
@@ -1209,97 +1396,6 @@ public:
       }
    }
 
-   void sampleUt( vector<bool>& R, vector<bool>& A, size_t t ) {
-      uniform_int_distribution<size_t> dist(0, g.n-1);
-      R.assign(g.n, false);
-      //      cerr << sizeSet( X ) << ' ' << k / r << endl;
-      for (size_t i = 0; i < t; ++i) {
-	 size_t pos;
-	 do {
-	    pos = dist( gen );
-	 } while (!A[ pos ] || R[ pos ] );
-	 R[ pos ] = true;
-      }
-   }
-   void sampleUt( vector<size_t>& R, vector<size_t>& A, size_t t ) {
-      //g.logg << "Starting sampleUX..." << endL;
-      R.clear();
-      uniform_int_distribution<size_t> dist(0, A.size() - 1);
-      vector< bool > alreadySampled( A.size(), false );
-
-      for (size_t i = 0; i < t; ++i) {
-	 size_t pos;
-	 do {
-	    pos = dist( gen );
-	 } while ((alreadySampled[pos]) );
-
-	 alreadySampled[pos] = true;
-	 R.push_back( A[pos] );
-      }
-   }
-
-   unsigned samp_Dt( vector< size_t >& idsA,
-		     vector< size_t >& idsS,
-		     size_t t,
-		     double tau ) {
-      vector< size_t > idsT;
-      vector< bool > T( g.n, false );
-      uniform_int_distribution<size_t> dist(0, idsA.size() - 1);
-      while (idsT.size() < t - 1) {
-	 size_t pos;
-	 pos = dist( gen );
-	 if ( !T[ idsA[ pos ] ] ) {
-	    T[ idsA[ pos ] ] = true;
-	    idsT.push_back( idsA[ pos ] );
-	 }
-      }
-
-      size_t x = 0;
-      do {
-	 size_t pos = dist( gen );
-	 x = idsA[ pos ];
-      } while ( T[ x ] );
-
-      vector< bool > ScupT(g.n, false);
-      
-      for (size_t i = 0; i < idsS.size(); ++i) {
-	 ScupT[idsS[i]] = true;
-      }
-      for (size_t i = 0; i < idsT.size(); ++i) {
-	 ScupT[idsT[i]] = true;
-      }
-
-      if ( marge( nEvals, g, x, ScupT ) >= tau ) {
-
-	 return 1;
-      }
-
-      return 0;
-   }
-
-   void filter( vector< bool >& A,
-		vector< bool >& S,
-		double tau,
-		vector< size_t >& idsA ) {
-      vector< size_t > newIdsA;
-      for (size_t i = 0; i < idsA.size(); ++i) {
-	 size_t x = idsA[i];
-	 if (S[x]) {
-	    // filter x
-	    A[x] = false;
-	 } else {
-	    if (marge( nEvals, g, x, S ) < tau) {
-	       //filter x
-	       A[x] = false;
-	    } else {
-	       //keep x
-	       newIdsA.push_back( x );
-	    }
-	 }
-      }
-
-      idsA.swap( newIdsA );
-   }
 
    size_t get_size_set( vector< bool >& S ) {
       size_t sizeSol = 0;
@@ -1307,129 +1403,6 @@ public:
 	 if (S[i])
 	    ++sizeSol;
       return sizeSol;
-   }
-   
-   void threshold_sample( vector< bool >& S,
-			  size_t k,
-			  double tau,
-			  double epsi,
-			  double delta,
-			  vector< bool >& exclude,
-			  bool bexcl,
-			  vector< size_t >& idsS ) {
-     double hatepsi;
-     if (!fast) {
-       hatepsi = epsi / 3;
-     }
-      else {
-	hatepsi = epsi;
-      }
-      g.logg << DEBUG << "hatepsi = " << hatepsi << endL;
-      size_t r = log( 2*g.n / delta ) + 1;
-      size_t m = log( k ) / hatepsi + 1;
-      double hatdelta = delta / (2*r*(m+1));
-
-
-      size_t sizeS = 0;
-      vector< bool > A( g.n, true );
-      vector< size_t > idsA;
-      //vector< size_t > idsS;
-
-      //S.assign( g.n, false );
-      //idsS.clear();
-      vector< size_t > idsT;
-      for (size_t i = 0; i < g.n; ++i) {
-	 if (bexcl) {
-	    if (!exclude[i])
-	       idsA.push_back(i);
-	    else
-	       A[i] = false;
-	 } else
-	    idsA.push_back( i );
-      }
-
-      for (unsigned j = 0; j < r; ++j) {
-	 filter( A, S, tau, idsA );
-	 g.logg << DEBUG << "Post filter size of A: " << idsA.size() << endL;
-	 //	 g.logg << DEBUG << "(1 - hatepsi): " << 1 - hatepsi << endL;
-	 if (idsA.size() == 0) {
-	    return;
-	 } else {
-	    if (idsA.size() == 1) {
-	       S[ idsA[0] ] = true;
-	       idsS.push_back( idsA[0] );
-	       ++sizeS;
-	       return;
-	    }
-	 }
-	 double tmpT = 1;//= (1+hatepsi)^i
-	 size_t t = 0;
-	 for (unsigned i = 0; i < m; ++i) {
-	    
-	    t = idsA.size();
-	    if (t > static_cast<size_t>(tmpT))
-	       t = static_cast<size_t>(tmpT);
-	    tmpT = tmpT * (1 + hatepsi);
-
-	    g.logg << TRACE << "tmpT t: " << tmpT << " " << t << endL;
-	    size_t ell = 16*( log( 2 / hatdelta )/ hatepsi / hatepsi + 1);
-	    double ubar = 0;
-
-	    g.logg << TRACE << "Samps required for reduced-mean: " << ell << endL;
-	    if (fast) {
-	      if (ell > 100)
-		ell = 100;
-
-	      g.logg << TRACE << "Fast mode, using ell = " << ell << endL;
-	    }
-	    
-	    
-	    if ( t > 1) {
-	       for (size_t l = 0; l < ell; ++l) {
-
-		  ubar += samp_Dt( idsA, idsS, t, tau );
-	       }
-	       ubar /= ell;
-	       if (ubar <= 1 - 1.5*hatepsi)
-		  break;
-
-	       if (t == idsA.size()) {
-		 //all possible elements are good in expectation
-		 //can break
-		 break;
-	       }
-	    } 
-	 }
-
-	 if ( t > k - sizeS )
-	    t = k - sizeS;
-
-	 
-	 sampleUt( idsT, idsA, t );
-	 g.logg << DEBUG << "Adding random set of size: "
-		<< t << " " << idsT.size() << endL;
-	 for (size_t i = 0; i < t; ++i){
-	    if (!S[ idsT[i] ]) {
-	       S[ idsT[i] ] = true;
-	       ++sizeS;
-	       idsS.push_back( idsT[i] );
-	    }
-	    
-	 }
-	 if (sizeS >= k)
-	    return;
-      }
-   }
-
-   void random_set( vector< bool >& C, vector< size_t >& A ) {
-      C.assign( g.n, false );
-      double prob = 1.0 / A.size();
-      
-      for (size_t i = 0; i < A.size(); ++i) {
-	 if (unidist(gen) < prob) {
-	    C[ A[i] ] = true;
-	 }
-      }
    }
    
    void run() {
@@ -1465,12 +1438,12 @@ public:
 
 	tau_i = tau_i * (1 - epsi);
 	 
-	threshold_sample( A, k - idsA.size(),
+	threshold_sample( nEvals, g, A, k - idsA.size(),
 			  tau_i,
 			  epsi, delta / 2,
 			  A,
 			  false,
-			  idsA );
+			  idsA, fast );
 
 	if (idsA.size() == k)
 	  break;
@@ -1482,19 +1455,19 @@ public:
 
 	tau_i = tau_i * (1 - epsi);
 	 
-	threshold_sample( B, k - idsB.size(),
+	threshold_sample( nEvals, g, B, k - idsB.size(),
 			  tau_i,
 			  epsi, delta / 2,
 			  A,
 			  true,
-			  idsB );
+			  idsB, fast );
 
 	if (idsB.size() == k)
 	  break;
       }
 
       
-      random_set( C, idsA );
+      random_set( g, C, idsA );
 
       bool replaced = false;
 	 
@@ -1530,6 +1503,8 @@ public:
       reportResults( nEvals, solVal );
    }
 };
+
+
 
 class Blits {
    size_t k;
