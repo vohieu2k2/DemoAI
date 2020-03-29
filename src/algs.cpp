@@ -239,6 +239,75 @@ unsigned samp_Dt( size_t& nEvals,
   return 0;
 }
 
+double reduced_mean_dagum( size_t& nEvals,
+			   tinyGraph& g,
+			   vector< size_t >& idsA,
+			   vector< size_t >& idsS,
+			   size_t t,
+			   double tau,
+			   double epsi,
+			   double delta,
+			   bool fast = false) {
+  g.logg << DEBUG << "RMD: Chernoff requires: " << 16*( log( 2 / delta )/ epsi / epsi + 1 ) << endL;
+  g.logg << DEBUG << "t: " << t << endL;
+											       
+  
+  double lambda = exp(1) - 2.0;
+  double upsilon = 4.0 * lambda * log(2.0 / delta) / pow(epsi, 2);
+  double upsilon_1;
+  if (!fast)
+    upsilon_1 = 1.0 + (1.0 + epsi) * upsilon;
+  else
+    upsilon_1 = 100;
+  
+  size_t sum = 0;
+  size_t nSamps = 0;
+  size_t goal = ceil(upsilon_1);
+											  
+  while(sum < goal) {
+    nSamps += 1;
+    sum += samp_Dt( nEvals, g, idsA, idsS, t, tau );
+
+    if (static_cast<double>( goal ) / nSamps < (1.0 - 1.5*epsi)) {
+      break;
+    }
+  }
+  
+    g.logg << DEBUG << "Dagum required: " << nSamps << endL;
+						       g.logg << DEBUG << "Dagum returning: " << static_cast<double>( goal ) / nSamps << endL;
+  return static_cast<double>( goal ) / nSamps;
+}
+
+double reduced_mean_chernoff( size_t& nEvals,
+			      tinyGraph& g,
+			      vector< size_t >& idsA,
+			      vector< size_t >& idsS,
+			      size_t t,
+			      double tau,
+			      double epsi,
+			      double delta,
+			      bool fast = false) {
+
+    g.logg << DEBUG << "Chernoff requires: " << 16*( log( 2 / delta )/ epsi / epsi + 1 ) << endL;
+  size_t ell = 0;
+  if (fast)
+    ell = 100;
+  else
+    ell = 16*( log( 2 / delta )/ epsi / epsi + 1);
+
+  double ubar = 0;
+  for (size_t l = 0; l < ell; ++l) {
+    ubar += samp_Dt(nEvals, g, idsA, idsS, t, tau );
+	  
+  }
+  ubar /= ell;
+
+										  
+  return ubar;
+}
+			      
+
+
 vector< bool > emptyBoolVector;
 vector< size_t > emptySize_tVector;
 
@@ -284,10 +353,44 @@ void threshold_sample( size_t& nEvals,
       idsA.push_back( i );
   }
 
+  filter( nEvals, g, A, S, tau, idsA );
+
+  if (idsA.size() <= 2*log( g.n )) {
+    //can run in sequential mode while maintaining log(n)-
+    //adaptivity
+    for (size_t j = 0; j < idsA.size(); ++j) {
+      size_t& x = idsA[j];
+      if (!S[x]) {
+	if (marge(nEvals, g, x, S) >= static_cast<signed long>( tau )) {
+	  S[x] = true;
+	  ++sizeS;
+	  idsS.push_back( x );
+	}
+	
+	if (sizeS >= k) {
+	  if (returnA) {
+	    retA.swap( A );
+	    retidsA.swap( idsA );
+	  }
+	  return;
+	}
+      }
+    }
+
+    if (returnA) {
+      retA.swap( A );
+      retidsA.swap( idsA );
+    }
+    
+    return;
+  }
+  
   for (unsigned j = 0; j < r; ++j) {
-    filter( nEvals, g, A, S, tau, idsA );
+
     g.logg << DEBUG << "Post filter size of A: " << idsA.size() << endL;
     //	 g.logg << DEBUG << "(1 - hatepsi): " << 1 - hatepsi << endL;
+    //  g.logg << DEBUG << "log n = " << log( g.n ) << endL;
+						   
     if (idsA.size() == 0) {
       return;
     } else {
@@ -305,27 +408,28 @@ void threshold_sample( size_t& nEvals,
       t = idsA.size();
       if (t > static_cast<size_t>(tmpT))
 	t = static_cast<size_t>(tmpT);
+      double oldTmpT = tmpT;
       tmpT = tmpT * (1 + hatepsi);
-
-      g.logg << TRACE << "tmpT t: " << tmpT << " " << t << endL;
-      size_t ell = 16*( log( 2 / hatdelta )/ hatepsi / hatepsi + 1);
+      if (tmpT < oldTmpT + 1)
+	tmpT = oldTmpT + 1;
+      
       double ubar = 0;
 
-      g.logg << TRACE << "Samps required for reduced-mean: " << ell << endL;
-      if (fast) {
-	if (ell > 100)
-	  ell = 100;
-
-	g.logg << TRACE << "Fast mode, using ell = " << ell << endL;
-      }
-	    
-	    
+      if (t > k - sizeS)
+	  break;
+      
       if ( t > 1) {
-	for (size_t l = 0; l < ell; ++l) {
-
-	  ubar += samp_Dt(nEvals, g, idsA, idsS, t, tau );
-	}
-	ubar /= ell;
+	
+	ubar = reduced_mean_dagum( nEvals,
+				   g,
+				   idsA,
+				   idsS,
+				   t,
+				   tau,
+				   hatepsi,
+				   hatdelta,
+				   fast );
+	  
 	if (ubar <= 1 - 1.5*hatepsi)
 	  break;
 
@@ -334,6 +438,8 @@ void threshold_sample( size_t& nEvals,
 	  //can break
 	  break;
 	}
+
+	
       } 
     }
 
@@ -359,6 +465,9 @@ void threshold_sample( size_t& nEvals,
       }
       return;
     }
+
+    if (j < r - 1)
+      filter( nEvals, g, A, S, tau, idsA );
   }
   if (returnA) {
     retA.swap( A );
@@ -1075,7 +1184,6 @@ public:
    double delta;
    size_t r;
    size_t OPT; //guess for opt
-   size_t nSamps = 30;
    size_t nEvals = 0;
   bool fast = false;
   
@@ -1086,7 +1194,7 @@ public:
       epsi = args.epsi;
       delta = args.delta;
       fast = args.fast;
-      g.logg << "ATG initialized:" << endL;
+      g.logg << "AdaptiveNonmonotoneMax initialized:" << endL;
       g.logg << "epsi=" << epsi << endL;
       g.logg << "delta=" << delta << endL;
       g.logg << "k=" << k << endL;
@@ -1105,7 +1213,7 @@ public:
    }
    
   void run() {
-      g.logg << "ANM: starting run..." << endL;
+      g.logg << "ANM starting run..." << endL;
       vector<bool> sol( g.n, false );
       size_t solVal = 0;
 
@@ -1154,7 +1262,7 @@ public:
 	vector<size_t> idsA;
 	vector<size_t> idsS;
 
-	threshold_sample( nEvals, g, S, k, tau_i, epsi, delta / 2, A, false, idsS, fast, true, A, idsA );
+	threshold_sample( nEvals, g, S, k, tau_i, epsi, delta, A, false, idsS, fast, true, A, idsA );
 	size_t tempVal = compute_valSet( nEvals, g, S );
 	if ( tempVal >= solVal ) {
 	    solVal = tempVal;
@@ -1227,7 +1335,9 @@ public:
       g.logg << "k=" << k << endL;
       if (fast) {
 	 g.logg << WARN << "Fast mode enabled. Theoretical guarantees will not hold!" << endL << INFO;
-	
+	 
+      } else {
+	delta = delta / 2;
       }
    }
 
@@ -1292,29 +1402,29 @@ public:
 
      
       for (unsigned i = 0; i <= m; ++i) {
-	g.logg << INFO << "ATG: iteration i = " << i << endL;
+	g.logg << DEBUG << "ATG: iteration i = " << i << endL;
 
 	tau_i = tau_i * (1 - epsi);
-	g.logg << INFO << "ATG: iteration tau_i = " << tau_i << endL;
+	g.logg << "ATG: iteration tau_i = " << tau_i << endL;
 
-	g.logg << INFO << "ATG: current solVal = " << solVal << endL;
+	g.logg << "ATG: current solVal = " << solVal << endL;
 	g.logg << "ATG: Current size of solution = " << get_size_set( sol ) << endL;
 
-	//	g.logg << "ATG: Stopping condition: " << solVal * (1 - epsi) / (6*k) << endL;
+	g.logg << "ATG: Stopping condition: " << solVal * (1 - epsi) / (6*k) << endL << INFO;
 	
-	 // if (tau_i < solVal * (1 - epsi) / (6*k)) {
-	 //    //solVal is a lower bound on OPT and
-	 //    //telling us we can stop now.
-	 //    break;
-	 // }
+	if (tau_i < solVal * (1 - epsi) / (6*k)) {
+	  //solVal is a lower bound on OPT and
+	  //telling us we can stop now.
+	  break;
+	}
 
 	A.assign( g.n, false );
 	idsA.clear();
-	threshold_sample( nEvals, g, A, k, tau_i, epsi, delta / 2, A, false, idsA, fast );
+	threshold_sample( nEvals, g, A, k, tau_i, epsi, delta, A, false, idsA, fast );
 
 	B.assign( g.n, false );
 	idsB.clear();
-	threshold_sample( nEvals, g, B, k, tau_i, epsi, delta / 2, A, true , idsB, fast );
+	threshold_sample( nEvals, g, B, k, tau_i, epsi, delta, A, true , idsB, fast );
 	random_set( g,C, idsA );
 
 	 bool replaced = false;
@@ -1343,9 +1453,6 @@ public:
 	    sol = C;
 	    replaced = true;
 	 }
-
-	 if (!replaced)
-	   break;
 
 	 if (get_size_set( sol ) == k ) {
 	    //We can quit now.
@@ -1393,6 +1500,7 @@ public:
       } else {
 	c = 8 / epsi;
 	epsi = 0.63 * epsi / 8;
+	delta = delta / 2;
       }
    }
 
@@ -1406,7 +1514,7 @@ public:
    }
    
    void run() {
-      g.logg << "LATG: starting run..." << endL;
+     g.logg << INFO << "LATG is starting run..." << endL;
       vector<bool> A( g.n, false );
       vector<size_t> idsA;
       vector<size_t> idsB;
@@ -1416,7 +1524,7 @@ public:
       size_t solVal = 0;
 
       //Get max singleton
-      g.logg << "ATG: Determining max singleton..." << endL;
+      g.logg << "Determining max singleton M..." << endL;
       size_t M = 0;
       //node_id a0;
 
@@ -1426,13 +1534,13 @@ public:
       	 }
       }
 
-      g.logg << "LATG: M = " << M << endL;
+      g.logg << "M = " << M << endL;
 
       size_t m = log( 1.0 / (c * k) ) / log( 1 - epsi );
 
       double tau_i = M / (1 - epsi);
 
-      g.logg << "LATG: m = " << m << endL;
+      g.logg << DEBUG << "m = " << m << endL << INFO;
 
       for (unsigned i = 0; i <= m; ++i) {
 
@@ -1440,7 +1548,7 @@ public:
 	 
 	threshold_sample( nEvals, g, A, k - idsA.size(),
 			  tau_i,
-			  epsi, delta / 2,
+			  epsi, delta,
 			  A,
 			  false,
 			  idsA, fast );
@@ -1457,7 +1565,7 @@ public:
 	 
 	threshold_sample( nEvals, g, B, k - idsB.size(),
 			  tau_i,
-			  epsi, delta / 2,
+			  epsi, delta,
 			  A,
 			  true,
 			  idsB, fast );
