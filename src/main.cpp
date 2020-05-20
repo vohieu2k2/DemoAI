@@ -28,7 +28,8 @@ void print_help() {
        << "-e <epsilon (default 0.1)>" << endl
        << "-d <delta (default 0.1)>" << endl
        << "-v [verbose]>" << endl
-       << "-f [fast mode (for ATG)]>" << endl;
+       << "-f [fast mode (for ATG)]>" << endl
+       << "-r [report round information]>" << endl;
 }
 
 void parseArgs( int argc, char** argv, Args& arg ) {
@@ -42,7 +43,7 @@ void parseArgs( int argc, char** argv, Args& arg ) {
 
   string sarg;
   
-  while ((c = getopt( argc, argv, ":G:k:IMQTRlSBALFN:o:e:d:vf") ) != -1) {
+  while ((c = getopt( argc, argv, ":G:k:IMQTRlSBALFN:o:e:d:vfr") ) != -1) {
     switch(c) {
     case 'f':
       arg.fast = true;
@@ -76,6 +77,9 @@ void parseArgs( int argc, char** argv, Args& arg ) {
        break;
     case 'l':
        arg.steal = false;
+       break;
+    case 'r':
+       arg.reportRounds = true;
        break;
     case 'I':
        arg.alg = IG;
@@ -128,6 +132,10 @@ void runAlg( Args& args ) {
    allResults.init( "nEvals" );
    allResults.init( "k" );
    allResults.add( "k", args.k );
+   allResults.add( "epsi", args.epsi );
+   allResults.add( "delta", args.delta );
+   allResults.add( "alg", args.alg );
+   allResults.add( "N", args.N );
    
    for (size_t i = 0; i < N; ++i) {
       args.g.logg << "runAlg: Repetition = " << i << endL;
@@ -223,14 +231,42 @@ void runAlg( Args& args ) {
 }
 
 
-void outputResults( Args& args ) {
-   if (args.outputFileName != "") {
-      args.g.logg << "Writing output to file: " << args.outputFileName << endL;
-      ofstream of( args.outputFileName.c_str(), ofstream::out | ofstream::app );
-      allResults.print( of );
-   } else {
+void outputResults( Args& args, ostream& of ) {
+   of << "# alg epsi delta N k Obj Obj,Std Queries Queries,Std Rounds Rounds,std" << endl;
+   allResults.print( "alg", of, false );
+   allResults.print( "epsi", of, false );
+   allResults.print( "delta", of, false );
+   allResults.print( "N", of, false );
+   allResults.print( "k", of, false );
+
+   //double mean = 0.0;
+   //allResults.print( "obj", of, true, mean );
+   allResults.print( "obj", of, true );
+   allResults.print( "nEvals", of, true );
+   allResults.print( "rounds", of, true );
+   of << endl;
+      
+   //   if (args.reportRounds) {
+	 // of << "# Rounds" << endl;
+	 // size_t rd = 0;
+	 // bool printed = true;
+
+	 // do {
+	 //    double newMean = 0;
+	 //    printed = allResults.print( to_string( rd ), of, true, newMean );
+	 //    ++rd;
+
+	 //    of << endl;
+	 //    if (newMean > mean )
+	 //       printed = false;
+	    
+	 // } while( printed );
+   //}
+
+
+   //  } else {
       //allResults.print( cout );
-   }
+   //}
 
    args.g.logg << INFO << "CPU time elapsed (s): " << args.tElapsed << endL;
    args.g.logg << INFO << "Wall time elapsed (s): " << args.wallTime << endL;
@@ -242,5 +278,10 @@ int main(int argc, char** argv) {
   parseArgs( argc, argv, args );
   readGraph( args );
   runAlg( args );
-  outputResults( args );
+  if (args.outputFileName != "") {
+      ofstream of( args.outputFileName.c_str(), ofstream::out | ofstream::app );
+      outputResults( args, of );
+      of.close();
+  }
+  outputResults( args, cout );
 }

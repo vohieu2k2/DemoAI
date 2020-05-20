@@ -1,9 +1,11 @@
 CPPFLAGS=-std=c++11 -Wall -O2
 
-all: maxcut preproc
+all: maxcut revmax preproc
 
 maxcut: src/main.cpp src/mygraph.cpp src/algs.cpp
 	g++ src/main.cpp -o maxcut  ${CPPFLAGS}
+revmax: src/main.cpp src/mygraph.cpp src/algs.cpp
+	g++ src/main.cpp -o revmax  ${CPPFLAGS} -DREVMAX
 debug: src/main.cpp src/mygraph.cpp src/algs.cpp
 	g++ src/main.cpp -o maxcut_debug -std=c++11 -Wall -Og -g 
 preproc: src/preprocess.cpp src/mygraph.cpp

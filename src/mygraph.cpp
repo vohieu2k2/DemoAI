@@ -134,7 +134,8 @@ namespace mygraph {
       return a < b;
    }  
 
-
+   double tmpDouble = 0;
+   
    //Graph structure solely for removing isolated nodes
    //Removes all isolated nodes, renumbers vertices from 0, n-1
    //unweighted, undirected graphs only
@@ -1097,9 +1098,50 @@ namespace mygraph {
       }
 
       void add( string name, double val ) {
-	 (data[ name ]).push_back( val );
+	 if (data.find( name ) != data.end()) {
+	    (data[ name ]).push_back( val );
+	 } else {
+	    vector< double > tmp;
+	    data[ name ] = tmp;
+	    (data[ name ]).push_back( val );
+	 }
       }
 
+      bool print( string name, ostream& os, bool printStdDev = true, double& Oldmean = tmpDouble ) {
+	 map< string, vector< double > >::iterator it = data.find( name );
+	 if (it != data.end()) {
+	    vector<double>& tmp = it->second;
+	    double mean = 0.0;
+	    for (size_t i = 0; i < tmp.size(); ++i) {
+	       mean += tmp[i];
+	    }
+	    
+	    
+	    mean = mean / tmp.size();
+
+	    os << mean << ' ';
+
+	    if (printStdDev) {
+	       double stdDev = 0.0;
+	       for (size_t i = 0; i < tmp.size(); ++i) {
+		  stdDev += (tmp[i]- mean)*(tmp[i]- mean);
+	       }
+	       if (tmp.size() > 1) {
+		  stdDev = stdDev / ( tmp.size() - 1 );
+		  stdDev = sqrt( stdDev );
+		  os << stdDev << ' ';
+	       } else {
+		  os << 0.0 << ' ';
+	       }
+	    }
+
+	    Oldmean = mean;
+	    return true;
+	 }
+
+	 return false;
+      }
+      
       void print( ostream& os, bool printStdDev = true ) {
       	 //Print names
       	 os << '#';
@@ -1107,19 +1149,14 @@ namespace mygraph {
       	 for (auto it = data.begin();
       	      it != data.end();
       	      ++it ) {
-      	    os << setw(25);
 
-	    os << to_string( index ) + it->first;
+	    os << to_string( index ) + "_" + it->first << ' ';
 	    ++index;
 	    if (printStdDev) {
-	       os << setw(25);
-
-	       os << to_string( index ) + it->first;
+	       os << to_string( index ) + "_" + it->first << ' ';
 	       ++index;
 	    }
 	    
-
-
       	 }
       	 os << endl;
       	 for (auto it = data.begin();
@@ -1131,7 +1168,7 @@ namespace mygraph {
 	       mean += tmp[i];
 	    }
 	    mean = mean / tmp.size();
-	    os << setw(25) << mean ;
+	    os << mean << ' ';
 
 	    if (printStdDev) {
 	       double stdDev = 0.0;
@@ -1141,9 +1178,9 @@ namespace mygraph {
 	       if (tmp.size() > 1) {
 		  stdDev = stdDev / ( tmp.size() - 1 );
 		  stdDev = sqrt( stdDev );
-		  os << setw(25) << stdDev ;
+		  os << stdDev << ' ';
 	       } else {
-		  os << setw(25) << 0.0 ;
+		  os << 0.0 << ' ';
 	       }
 	    }
       	 }
