@@ -3,7 +3,8 @@
 #include <fstream>
 #include <string>
 #include <ctime>
-
+#include <iostream>
+//#include "util.cpp"
 using namespace std;
 
 enum LogType { ERROR = -3, WARN = -2, OUTPUT = -1, INFO = 0, DEBUG = 1, TRACE = 2 };
@@ -15,74 +16,83 @@ public:
   bool echo;
   string msg;
   LogType msglevel;
-  
+  char buff[70];
+   bool enabled;
   Logger() : of (cout) {
     //    of.open("log.txt");
     //    of = cout;
     loglevel = INFO;
     msglevel = INFO;
     echo = false;
+    enabled = true;
   }
   
    Logger( LogType inlevel, ostream& os, bool echo_in = false ): of( os ) {
     //of.open("log.txt");
     //    of = cout;
-    loglevel = inlevel;
-    msglevel = INFO;
-    echo = echo_in;
-  }
+      loglevel = inlevel;
+      msglevel = INFO;
+      echo = echo_in;
+      enabled = true;
+   }
 
-  void set_level( LogType Lin ) {
-    loglevel = Lin;
-  }
+   void set_level( LogType Lin ) {
+      loglevel = Lin;
+   }
 
-  void operator()( LogType level, string msg ) {
-    if (level <= loglevel) {
-      switch (level) {
-      case ERROR:
-	of << time(NULL) << "\033[31m [ERROR] \033[0m" << msg << endl;
-	break;
-      case WARN:
-	of << time(NULL) << "\033[33m [WARN] \033[0m" << msg << endl;
-	break;
-      case OUTPUT:
-	of << time(NULL) << " [OUTPUT] " << msg << endl;
-	break;
-      case INFO:
-	of << time(NULL) << "\033[32m [INFO] \033[0m" << msg << endl;
-	break;
-      case DEBUG:
-	of << time(NULL) << "\033[31m [DEBUG] \033[0m" << msg << endl;
-	break;
-      case TRACE:
-	of << time(NULL) << "\033[31m [TRACE] \033[0m" << msg << endl;
-	break;
-      }
-      if (echo) {
+   void operator()( LogType level, string msg ) {
+      
+      if (enabled) {
+	 time_t t = time( NULL );
+	 strftime( buff, sizeof( buff ), "%b %d %H:%M:%S", localtime( &t ) );
+	 string sbuff( buff );
 	 if (level <= loglevel) {
 	    switch (level) {
 	    case ERROR:
-	       cout << time(NULL) << "\033[31m [ERROR] \033[0m" << msg << endl;
+	       of << sbuff << "\033[31m [ERROR] \033[0m" << msg << endl;
 	       break;
 	    case WARN:
-	       cout << time(NULL) << "\033[33m [WARN] \033[0m" << msg << endl;
+	       of << sbuff << "\033[33m [WARN] \033[0m" << msg << endl;
 	       break;
 	    case OUTPUT:
-	       cout << time(NULL) << " [OUTPUT] " << msg << endl;
+	       of << sbuff << " [OUTPUT] " << msg << endl;
 	       break;
 	    case INFO:
-	       cout << time(NULL) << "\033[32m [INFO] \033[0m" << msg << endl;
+	       of << sbuff << "\033[32m [INFO] \033[0m" << msg << endl;
 	       break;
 	    case DEBUG:
-	       cout << time(NULL) << "\033[31m [DEBUG] \033[0m" << msg << endl;
+	       of << sbuff << "\033[31m [DEBUG] \033[0m" << msg << endl;
 	       break;
 	    case TRACE:
-	       cout << time(NULL) << "\033[31m [TRACE] \033[0m" << msg << endl;
+	       of << sbuff << "\033[31m [TRACE] \033[0m" << msg << endl;
 	       break;
+	    }
+	    if (echo) {
+	       if (level <= loglevel) {
+		  switch (level) {
+		  case ERROR:
+		     cout << sbuff << "\033[31m [ERROR] \033[0m" << msg << endl;
+		     break;
+		  case WARN:
+		     cout << sbuff << "\033[33m [WARN] \033[0m" << msg << endl;
+		     break;
+		  case OUTPUT:
+		     cout << sbuff << " [OUTPUT] " << msg << endl;
+		     break;
+		  case INFO:
+		     cout << sbuff << "\033[32m [INFO] \033[0m" << msg << endl;
+		     break;
+		  case DEBUG:
+		     cout << sbuff << "\033[31m [DEBUG] \033[0m" << msg << endl;
+		     break;
+		  case TRACE:
+		     cout << sbuff << "\033[31m [TRACE] \033[0m" << msg << endl;
+		     break;
+		  }
+	       }
 	    }
 	 }
       }
-    }	     
   }
 
   ~Logger() {

@@ -796,7 +796,6 @@ namespace mygraph {
 	       sort( adjList[i].neis.begin(), adjList[i].neis.end(), tinyEdgeCompare );
 	    }
 	    preprocessTime = double (clock() - t_start) / CLOCKS_PER_SEC;
-	    cout << "Preprocessing took " << preprocessTime << "s\n";
 	 }
       }
 
@@ -932,7 +931,6 @@ namespace mygraph {
 	    //}
 	 }
 	 preprocessTime = double (clock() - t_start) / CLOCKS_PER_SEC;
-	 cout << "Preprocessing took " << preprocessTime << "s\n";
 	 return double (clock() - t_start) / CLOCKS_PER_SEC;
       }
 

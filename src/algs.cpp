@@ -16,6 +16,16 @@ enum Algs {IG=0, TG, RG, SG, BLITS, FIG, FRG, ATG, LATG, ANM};
 uniform_real_distribution< double > unidist(0, 1);
 
 resultsHandler allResults;
+vector< double > alpha; 
+
+void init_alpha( tinyGraph& g ) {
+   alpha.assign( g.n, 0.0 );
+   mt19937 gen( 0 ); //same sequence each time
+   
+   for (node_id u = 0; u < g.n; ++u) {
+      alpha[u] = unidist( gen );
+   }
+}
 
 struct Args {
    Algs alg;
@@ -110,10 +120,14 @@ size_t compute_valSet( size_t& nEvals, tinyGraph& g, vector<bool>& set ) {
 #else
 double compute_valSet( size_t& nEvals, tinyGraph& g, vector<bool>& set,
 		       vector< bool >& cov = emptySetVector ) {
+   if (alpha.size() == 0) {
+      init_alpha( g );
+   }
+   
    ++nEvals;
    cov.assign( g.n, false );
    double val = 0;
-   double alpha = 0.9;
+   
    for (node_id u = 0 ; u < g.n; ++u) {
       if (!set[u]) {
 	 vector< tinyEdge >& neis = g.adjList[u].neis;
@@ -124,7 +138,7 @@ double compute_valSet( size_t& nEvals, tinyGraph& g, vector<bool>& set,
 	       valU += neis[j].weight;
 	    }
 	 }
-	 valU = pow( valU, alpha );
+	 valU = pow( valU, alpha[u] );
 	 val += valU;
       }
    }
@@ -133,6 +147,9 @@ double compute_valSet( size_t& nEvals, tinyGraph& g, vector<bool>& set,
 }
 
 double compute_valSet( size_t& nEvals, tinyGraph& g, vector<node_id>& sset ) {
+   if (alpha.size() == 0) {
+      init_alpha( g );
+   }
    vector< bool > set(g.n, false);
    for (size_t i = 0; i < sset.size(); ++i) {
       set[ sset[i] ] = true;
@@ -141,7 +158,6 @@ double compute_valSet( size_t& nEvals, tinyGraph& g, vector<node_id>& sset ) {
    ++nEvals;
 
    double val = 0;
-   double alpha = 0.9;
    for (node_id u = 0 ; u < g.n; ++u) {
       if (!set[u]) {
 	 vector< tinyEdge >& neis = g.adjList[u].neis;
@@ -152,7 +168,7 @@ double compute_valSet( size_t& nEvals, tinyGraph& g, vector<node_id>& sset ) {
 	       valU += neis[j].weight;
 	    }
 	 }
-	 valU = pow( valU, alpha );
+	 valU = pow( valU, alpha[u] );
 	 val += valU;
       }
    }
@@ -162,11 +178,11 @@ double compute_valSet( size_t& nEvals, tinyGraph& g, vector<node_id>& sset ) {
 
 double marge( size_t& nEvals, tinyGraph& g, node_id x, vector<bool>& set,
 		   vector< bool >& cov = emptySetVector ) {
-   
+   if (alpha.size() == 0) {
+      init_alpha( g );
+   }
    if (set[x])
       return 0;
-
-   double alpha = 0.9;
 
    double loss = 0.0;
    
@@ -179,7 +195,7 @@ double marge( size_t& nEvals, tinyGraph& g, node_id x, vector<bool>& set,
       }
    }
 
-   valX = pow( valX, alpha );
+   valX = pow( valX, alpha[x] );
 
    loss = valX;
 
@@ -192,14 +208,16 @@ double marge( size_t& nEvals, tinyGraph& g, node_id x, vector<bool>& set,
       for (size_t k = 0; k < neisV.size(); ++k) {
 	 node_id w = neisV[k].target;
 	 if (w != x) {
-	    valV += neisV[k].weight;
-	    valVwithX += neisV[k].weight;
+	    if (set[w]) {
+	       valV += neisV[k].weight;
+	       valVwithX += neisV[k].weight;
+	    }
 	 } else {
 	    valVwithX += neisV[k].weight;
 	 }
       }
 
-      gain += pow( valVwithX, alpha ) - pow( valV, alpha );
+      gain += pow( valVwithX, alpha[v] ) - pow( valV, alpha[v] );
    }
 
    ++nEvals;
@@ -1812,6 +1830,9 @@ public:
 
       g.logg << DEBUG << "m = " << m << endL << INFO;
 
+      if (!fast) {
+	 delta = delta / m;
+      }
       
       vector< double > valueThisRound;
 

@@ -13,22 +13,19 @@ void print_help() {
   cout << "Options: " << endl;
   cout << "-G <graph filename in binary format>" << endl
        << "-k <cardinality constraint>" << endl
-       << "-A [run ATG]" << endl
-       << "-M [run ANM]" << endl
-       << "-L [run LATG]" << endl
-       << "-I [run InterlaceGreedy]" << endl
+       << "-A [run AdaptiveSimpleThreshold]" << endl
+       << "-M [run AdaptiveNonmonotoneMax]" << endl
+       << "-L [run AdaptiveThresholdGreedy]" << endl
        << "-F [run FastInterlaceGreedy]" << endl
-       << "-T [run Gupta et al. (2010)]" << endl
-       << "-R [run RandomizedGreedy]" << endl
-       << "-Q [run FastRandomizedGreedy]" << endl
+       << "-T [run IteratedGreedy]" << endl
+       << "-Q [run FastRandomGreedy]" << endl
        << "-B [run Blits]" << endl
-       << "-l [turn off stealing behavior of (Fast)InterlaceGreedy]" << endl
        << "-o <outputFileName>" << endl
        << "-N <repetitions>" << endl
        << "-e <epsilon (default 0.1)>" << endl
        << "-d <delta (default 0.1)>" << endl
        << "-v [verbose]>" << endl
-       << "-f [fast mode (for ATG)]>" << endl
+       << "-f [fast mode (for algs. using ThresholdSample)]>" << endl
        << "-r [report round information]>" << endl;
 }
 
@@ -43,7 +40,7 @@ void parseArgs( int argc, char** argv, Args& arg ) {
 
   string sarg;
   
-  while ((c = getopt( argc, argv, ":G:k:IMQTRlSBALFN:o:e:d:vfr") ) != -1) {
+  while ((c = getopt( argc, argv, ":G:k:IMQTRlSBALFN:o:e:d:vfrq") ) != -1) {
     switch(c) {
     case 'f':
       arg.fast = true;
@@ -80,6 +77,10 @@ void parseArgs( int argc, char** argv, Args& arg ) {
        break;
     case 'r':
        arg.reportRounds = true;
+       break;
+    case 'q':
+       arg.logg.enabled = false;
+       arg.g.logg.enabled = false;
        break;
     case 'I':
        arg.alg = IG;
@@ -282,6 +283,9 @@ int main(int argc, char** argv) {
       ofstream of( args.outputFileName.c_str(), ofstream::out | ofstream::app );
       outputResults( args, of );
       of.close();
+  } else {
+     allResults.print( "obj", cout, false );
+     allResults.print( "nEvals", cout, false );
+     allResults.print( "rounds", cout, false );
   }
-  outputResults( args, cout );
 }

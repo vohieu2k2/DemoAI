@@ -1,16 +1,16 @@
-## Nearly Linear-Time, Deterministic Algorithm for Maximizing (Non-Monotone) Submodular Functions Under Cardinality Constraint
+## Fast and Parallelizable Algorithms for Submodular Maximization
 
 This is the implementation of all algorithms evaluated in the paper,
-for the cardinality-constrained maximum cut application (weighted or unweighted).
+for the cardinality-constrained maximum cut application (weighted or unweighted)
+and revenue maximization application.
 
 ### Dependencies 
 GNU g++, GNU make utility
 
 ### Binaries
-. `maxcut`, the main program to run all algorithms
+. `maxcut`, the main program to run all algorithms for cardinality-constrained maximum cut application
+. `revmax`, the main program to run all algorithms for revenue maximization application
 . `preproc`, for preprocessing edge lists to custom binary format
-. `er`, to generate Erdos-Renyi edges lists
-. `ba`, to generate Barabasi-Albert scale-free edge lists
 
 ### Format of input graph
 
@@ -33,24 +33,39 @@ preproc graph.el graph.bin
 ```
 generates the `graph.bin` file in the correct binary format for input to the other programs.
 
-### Parameters of `maxcut`
+### Parameters
 ```
+Options: 
 -G <graph filename in binary format>
 -k <cardinality constraint>
--I [run InterlaceGreedy]
+-A [run AdaptiveSimpleThreshold]
+-M [run AdaptiveNonmonotoneMax]
+-L [run AdaptiveThresholdGreedy]
 -F [run FastInterlaceGreedy]
--T [run Gupta et al. (2010)]
--R [run RandomizedGreedy]
--Q [run FastRandomizedGreedy]
+-T [run IteratedGreedy]
+-Q [run FastRandomGreedy]
 -B [run Blits]
--l [turn off stealing behavior of (Fast)InterlaceGreedy]
 -o <outputFileName>
 -N <repetitions>
 -e <epsilon (default 0.1)>
+-d <delta (default 0.1)>
+-v [verbose]>
+-f [fast mode (for algs. using ThresholdSample)]>
+-r [report round information]>
 ```
 ### Example
 ```
-./er 1000 0.5 er1k.el #creates ER edge list with n = 1000, p=0.5
-./preproc er1k.el er1k.bin #creates binary input file
-./maxcut -G er1k.bin -k 50 -F #Runs FastInterlaceGreedy for cardinality-constrained maxcut problem
+bash gen-table.bash
+```
+This command should generate a table similar to the one below,
+for cardinality-constrained maxcut
+on Barabasi-Albert random graph with n=968 and k=200.
+```
+           Algorithm            Objective              Queries               Rounds
+      IteratedGreedy                 1992               309840                  800
+ FastInterlaceGreedy                 1847               133589               139106
+    FastRandomGreedy                 1635               173702                  200
+   AdaNonmonotoneMax                 1701               476073                   23
+     AdaSimpleThresh                 1694               499716                   30
+     AdaThreshGreedy                 1978                96104                  157
 ```
