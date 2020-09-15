@@ -639,11 +639,11 @@ void threshold_sample( size_t& nEvals,
     }
 
     if (j < r - 1) {
-      filter( nEvals, g, A, S, tau, idsA );
-      if (reportRounds) {
-	 report_rounds( S, valRounds, g );
-	 ++adaRounds;
-      }
+       filter( nEvals, g, A, S, tau, idsA );
+       if (reportRounds) {
+	  report_rounds( S, valRounds, g );
+	  ++adaRounds;
+       }
     }
   }
   
