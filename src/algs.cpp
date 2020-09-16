@@ -1790,7 +1790,10 @@ public:
   double onenorm( vector< double >& x ) {
     double val = 0.0;
     for (size_t i = 0; i < x.size(); ++i) {
-      val += x[i];
+      if (x[i] > 0)
+	val += x[i];
+      else
+	val -= x[i];
     }
     return val;
   }
@@ -1940,13 +1943,12 @@ public:
 	  vector< node_id > Seta;
 	  computeTeta( eta - delta, v, z, S, Seta, Teta );
 	  //update x,z
-	  for (size_t i = 0; i < g.n; ++i) {
-	    if (Teta[i]) {
-	      x[i] = x[i] + eta*(1.0 - x[i]);
-	    }
-	    if (S[i]) {
-	      z[i] = z[i] + eta*(1.0 - z[i]);
-	    }
+	  for (size_t i = 0; i < Teta.size(); ++i) {
+	    x[ Teta[i] ] = x[ Teta[i] ] + eta*(1.0 - x[ Teta[i] ]);
+	  }
+
+	  for (size_t i = 0; i < S.size(); ++i) {
+	    z[ S[i] ] = z[ S[i] ] + eta*(1.0 - z[ S[i] ]);
 	  }
 
 	  if (evalMultilinear( z ) > evalMultilinear( x ) ) {
