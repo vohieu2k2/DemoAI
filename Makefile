@@ -1,4 +1,4 @@
-CPPFLAGS=-std=c++11 -Wall -O2
+CPPFLAGS=-std=c++11 -Wall -O2 -l pthread
 
 all: maxcut revmax preproc
 

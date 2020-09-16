@@ -177,7 +177,7 @@ void runAlg( Args& args ) {
  	 break;
       case ENE:
 	 {
-	    args.logg(INFO, "Starting Blits..." );
+	    args.logg(INFO, "Starting Ene et al. (2019)..." );
 	    Ene ene( args );
 	    ene.run();
 	 }

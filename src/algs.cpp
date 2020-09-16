@@ -1779,8 +1779,10 @@ public:
       fast = args.fast;
       reportRounds = args.reportRounds;
       delta = pow(epsi, 4) / (log( g.n) * log( 1.0 / epsi ) );
+	
       g.logg << "Ene initialized:" << endL;
       g.logg << "epsi=" << epsi << endL;
+      g.logg << "delta=" << delta << endL;
       g.logg << "k=" << k << endL;
 
       g.logg << WARN << "Algorithm run as heuristic. Theoretical guarantees will not hold!" << endL << INFO;
@@ -1816,13 +1818,21 @@ public:
 
   void gradientMultilinear( vector< double >& gradient, vector< double >& x ) {
     //forward approximation
-    double gamma = 0.01;
+    double gamma = 0.1;
     double fx = evalMultilinear( x );
+    double normGrad = 0.0;
     for (size_t i = 0; i < g.n; ++i) {
       x[i] += gamma;
-      gradient[i] = (evalMultilinear( x, 1 ) - fx) / gamma;
+      gradient[i] = (evalMultilinear( x ) - fx) / gamma;
+      normGrad += gradient[i]*gradient[i];
       x[i] -= gamma;
     }
+
+    normGrad = sqrt( normGrad );
+    for (size_t i = 0; i < g.n; ++i) {
+      gradient[i] = gradient[i] / normGrad;
+    }
+
   }
 
   void computeTeta( double eta,
@@ -1830,10 +1840,13 @@ public:
 		    vector< double >& z,
 		    vector< node_id >& S,
 		    vector< node_id >& Seta,
-		    vector< node_id >& Teta ) {
-    vector< double > zeta = z;
+		    vector< node_id >& Teta,
+		    size_t j,
+		    vector< double >& zstart ) {
+    vector< double > zeta(z.begin(), z.end());
+
     for (size_t i = 0; i < S.size(); ++i) {
-      zeta[ S[i] ] = zeta[ S[i] ] + eta*(1.0 - zeta[ S[i] ]);
+      zeta[ S[i] ] = zeta[ S[i] ]; // + eta*(1.0 - zeta[ S[i] ]);
     }
 
     vector< double > grad( g.n, 0.0 );
@@ -1846,40 +1859,55 @@ public:
 
     Seta.clear();
     Teta.clear();
+
+    // vector< double > vec_g_eta(g.n);
+    // for (size_t i = 0; i < g.n; ++i) {
+    //   vec_g_eta[ i ] = (1.0 - zeta[i])*grad[i];
+    //   if (zeta[i] <= 1.0 - pow(1.0 - epsi,j)) {
+    // 	if (zeta[i] < epsi*(1.0 - zstart[i]) + zstart[i]) {
+    // 	  if (vec_g_eta[i] >= v ) {
+    // 	    Seta.push_back(i);
+    // 	  }
+    // 	}
+    //   }
+    // }
+    
     for (size_t i = 0; i < S.size(); ++i) {
       if (vec_g_eta[S[i]] >= v)
 	Seta.push_back( S[i] );
-      if (vec_g_eta[S[i]] >= 0.0)
+      if (vec_g_eta[S[i]] > 0.0)
 	Teta.push_back( S[i] );
     }
+
+    //cerr << "Seta.size() " << Seta.size() << endl;
+
   }
   
   bool evalEta( double eta, double epsi, double v,
-		vector< double >& z, vector< node_id >& S ) {
+		vector< double >& z, vector< node_id >& S, size_t j, vector< double >& zstart ) {
     vector < node_id > Seta;
     vector < node_id > Teta;
-    computeTeta( eta, v, z, S, Seta, Teta );
+    computeTeta( eta, v, z, S, Seta, Teta, j, zstart );
 
+    //    cerr << eta << ' ' << Seta.size() << ' ' << S.size() << endl;
     return (Seta.size() >= (1.0 - epsi)*S.size());
   }
   
-  double findeta1( double v, vector< double >& z, vector< double >& vec_g, vector< node_id >& S) {
-
-
+  double findeta1( double v, vector< double >& z, vector< double >& vec_g, vector< node_id >& S, size_t j, vector< double >& zstart ) {
 
     double etastart = 0.0;
     double etaend = epsi*epsi;
     while (etaend - etastart > delta) {
       double etatest = (etastart + etaend) / 2.0;
 
-      if ( !evalEta( etatest, epsi, v, z, S ) ) {
+      if ( evalEta( etatest, epsi, v, z, S, j, zstart ) ) {
 	etastart = etatest;
       } else {
 	etaend = etatest;
       }
     }
-    
-    return etaend;
+
+    return etastart + delta;
   }
 
   double findeta2( double epsi, size_t j, size_t k, vector< double >& z, vector< node_id >& S ) {
@@ -1898,19 +1926,24 @@ public:
     return eta;
   }
   
-  double runM( double epsi, double M ) {
+  void runM( double epsi, double M, double& valout, size_t i ) {
     
     vector< double > x( g.n, 0.0 );
     vector< double > z( g.n, 0.0 );
 
     for (size_t j = 1; j <= size_t( 1.0 / epsi ); ++j ) {
-      cerr << "j = " << j << endl;
+      if (i == 0)
+	cerr << "j = " << j << endl;
+      
       vector< double > xstart  = x;
       vector< double > zstart  = z;
       double vstart = (pow( (1 - epsi), j ) - 2*epsi)*M - evalMultilinear( x );
+      if (vstart < 0) {
+	continue;
+      }
       vstart /= k;
       double v = vstart;
-      while ( (v > epsi * vstart) && (onenorm(z) < epsi*j*k) ) {
+      while ( (v > epsi * vstart) && (onenorm(z) < epsi*j*k  ) ) {
 	vector< node_id > S; S.clear();
 	
 	vector< double > gradf(g.n);
@@ -1930,18 +1963,22 @@ public:
 	}
 
 	if (S.size() == 0) {
-	  cerr << "S.size " << S.size() << endl;
-	  v = (1 - epsi)*v;
+	  //v = (1 - epsi)*v;
+	  v = 0.75*v;
 	} else {
-	  cerr << "S.size " << S.size() << endl;
-
-	  double eta1 = findeta1( v, z, vec_g, S );
+	  if (i == 0)
+	    cerr << "sizeS = " << S.size() << endl;
+	  double eta1 = findeta1( v, z, vec_g, S, j, zstart );
 	  double eta2 = findeta2( epsi, j, k, z, S );
 	  double eta = min( eta1, eta2 );
 
+	  if (i == 0)
+	    cerr << "eta1 = " << eta1 << ", " << "eta2 =" << eta2 << endl;
+	  
 	  vector< node_id > Teta;
 	  vector< node_id > Seta;
-	  computeTeta( eta - delta, v, z, S, Seta, Teta );
+	  //computeTeta( eta - delta, v, z, S, Seta, Teta );
+	  computeTeta( eta, v, z, S, Seta, Teta, j, zstart );
 	  //update x,z
 	  for (size_t i = 0; i < Teta.size(); ++i) {
 	    x[ Teta[i] ] = x[ Teta[i] ] + eta*(1.0 - x[ Teta[i] ]);
@@ -1956,9 +1993,10 @@ public:
 	  }
 	}
       }
+
     }
 
-    return evalMultilinear( x );
+    valout= evalMultilinear( x );
   }
   
   void run() {
@@ -1974,14 +2012,31 @@ public:
       }
 
       double tauinit = tau;
+      vector < double > vtau;
       while (tau < tauinit * k) {
-	cerr << "tau = " << tau << endl;
+	vtau.push_back( tau );
 	tau = tau*(1 + epsi);
-	double val = runM( epsi, tau ); //TODO: add rounding ?
-	if (val > solVal) {
-	  solVal = val;
-	}
       }
+
+      size_t nThreads = vtau.size();
+      //size_t nThreads = 1;
+
+      g.logg << "Paralellizing OPT guesses in " << nThreads << " threads..." << endL;
+      
+      thread* wThreads = new thread[ nThreads ];
+      vector < double > vals (nThreads );
+      for (size_t i = 0; i < nThreads; ++i) {
+	wThreads[i] = thread( &Ene::runM, this, epsi, vtau[i], ref( vals[i] ), i );
+      }
+
+      for (size_t i = 0; i < nThreads; ++i) {
+	wThreads[i].join();
+	if (vals[i] > solVal)
+	  solVal = vals[i];
+      }
+
+      delete [] wThreads;
+
       
       g.logg << INFO << "Ene: solVal=" << solVal << endL;
       g.logg << INFO << "Ene: queries=" << nEvals << endL;
