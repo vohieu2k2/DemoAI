@@ -20,6 +20,7 @@ void print_help() {
        << "-T [run IteratedGreedy]" << endl
        << "-Q [run FastRandomGreedy]" << endl
        << "-B [run Blits]" << endl
+       << "-E [run Ene et al. 2019]" << endl
        << "-o <outputFileName>" << endl
        << "-N <repetitions>" << endl
        << "-e <epsilon (default 0.1)>" << endl
@@ -40,7 +41,7 @@ void parseArgs( int argc, char** argv, Args& arg ) {
 
   string sarg;
   
-  while ((c = getopt( argc, argv, ":G:k:IMQTRlSBALFN:o:e:d:vfrq") ) != -1) {
+  while ((c = getopt( argc, argv, ":G:k:IMQTRlSBEALFN:o:e:d:vfrq") ) != -1) {
     switch(c) {
     case 'f':
       arg.fast = true;
@@ -96,6 +97,9 @@ void parseArgs( int argc, char** argv, Args& arg ) {
        break;
     case 'B':
        arg.alg = BLITS;
+       break;
+    case 'E':
+       arg.alg = ENE;
        break;
     case 'T':
        arg.alg = TG;
@@ -169,6 +173,13 @@ void runAlg( Args& args ) {
 	    args.logg(INFO, "Starting Blits..." );
 	    Blits blits( args );
 	    blits.run();
+	 }
+ 	 break;
+      case ENE:
+	 {
+	    args.logg(INFO, "Starting Blits..." );
+	    Ene ene( args );
+	    ene.run();
 	 }
 	 break;
       case SG:

@@ -11,7 +11,7 @@
 using namespace std;
 using namespace mygraph;
 
-enum Algs {IG=0, TG, RG, SG, BLITS, FIG, FRG, ATG, LATG, ANM};
+enum Algs {IG=0, TG, RG, SG, BLITS, FIG, FRG, ATG, LATG, ANM, ENE};
 
 uniform_real_distribution< double > unidist(0, 1);
 
@@ -1752,6 +1752,244 @@ public:
 	 for (size_t j = 0; j < valueAllRounds[ solRound ].size(); ++j) {
 	    allResults.add( to_string( j ), valueAllRounds[ solRound ][ j ] );
 	 }
+      }
+
+      reportResults( nEvals, solVal, rounds );
+  }
+};
+
+class Ene {
+public:
+   size_t k;
+   tinyGraph& g;
+   double epsi;
+   double delta;
+  size_t rounds = 0;
+   double OPT; //guess for opt
+   size_t nSamps = 10;
+   size_t nEvals = 0;
+  bool fast = false;
+   bool reportRounds = false;
+
+  Ene( Args& args ) : g( args.g ) {
+      k = args.k;
+      //OPT = 130180;
+      OPT = g.m;
+      epsi = args.epsi;
+      fast = args.fast;
+      reportRounds = args.reportRounds;
+      delta = pow(epsi, 4) / (log( g.n) * log( 1.0 / epsi ) );
+      g.logg << "Ene initialized:" << endL;
+      g.logg << "epsi=" << epsi << endL;
+      g.logg << "k=" << k << endL;
+
+      g.logg << WARN << "Algorithm run as heuristic. Theoretical guarantees will not hold!" << endL << INFO;
+	 
+   }
+
+  double onenorm( vector< double >& x ) {
+    double val = 0.0;
+    for (size_t i = 0; i < x.size(); ++i) {
+      val += x[i];
+    }
+    return val;
+  }
+
+  double evalMultilinear( vector< double >& x, size_t nSamps = 100 ) {
+    double val = 0.0;
+    vector< bool > set(g.n, false);
+    for (size_t i = 0; i < nSamps; ++i) {
+      for (size_t j = 0; j < g.n; ++j) {
+	set[j] = false;
+	if ( unidist( gen ) < x[j] ) {
+	  set[j] = true;
+	}
+      }
+      val += compute_valSet( nEvals, g, set );
+    }
+
+    return val / nSamps;
+  }
+
+  void gradientMultilinear( vector< double >& gradient, vector< double >& x ) {
+    //forward approximation
+    double gamma = 0.01;
+    double fx = evalMultilinear( x );
+    for (size_t i = 0; i < g.n; ++i) {
+      x[i] += gamma;
+      gradient[i] = (evalMultilinear( x, 1 ) - fx) / gamma;
+      x[i] -= gamma;
+    }
+  }
+
+  void computeTeta( double eta,
+		    double v,
+		    vector< double >& z,
+		    vector< node_id >& S,
+		    vector< node_id >& Seta,
+		    vector< node_id >& Teta ) {
+    vector< double > zeta = z;
+    for (size_t i = 0; i < S.size(); ++i) {
+      zeta[ S[i] ] = zeta[ S[i] ] + eta*(1.0 - zeta[ S[i] ]);
+    }
+
+    vector< double > grad( g.n, 0.0 );
+    gradientMultilinear( grad, zeta );
+    
+    vector< double > vec_g_eta( g.n );
+    for (size_t i = 0; i < g.n; ++i) {
+      vec_g_eta[i] = (1.0 - zeta[i] )*grad[i];
+    }
+
+    Seta.clear();
+    Teta.clear();
+    for (size_t i = 0; i < S.size(); ++i) {
+      if (vec_g_eta[S[i]] >= v)
+	Seta.push_back( S[i] );
+      if (vec_g_eta[S[i]] >= 0.0)
+	Teta.push_back( S[i] );
+    }
+  }
+  
+  bool evalEta( double eta, double epsi, double v,
+		vector< double >& z, vector< node_id >& S ) {
+    vector < node_id > Seta;
+    vector < node_id > Teta;
+    computeTeta( eta, v, z, S, Seta, Teta );
+
+    return (Seta.size() >= (1.0 - epsi)*S.size());
+  }
+  
+  double findeta1( double v, vector< double >& z, vector< double >& vec_g, vector< node_id >& S) {
+
+
+
+    double etastart = 0.0;
+    double etaend = epsi*epsi;
+    while (etaend - etastart > delta) {
+      double etatest = (etastart + etaend) / 2.0;
+
+      if ( !evalEta( etatest, epsi, v, z, S ) ) {
+	etastart = etatest;
+      } else {
+	etaend = etatest;
+      }
+    }
+    
+    return etaend;
+  }
+
+  double findeta2( double epsi, size_t j, size_t k, vector< double >& z, vector< node_id >& S ) {
+    double eta = epsi*j*k - onenorm( z );
+
+    double on1 = 0.0;
+    for (size_t i = 0; i < S.size(); ++i) {
+      on1 += z[ S[i] ];
+    }
+
+    eta /= (S.size() - on1);
+
+    if (epsi*epsi < eta)
+      return epsi*epsi;
+    
+    return eta;
+  }
+  
+  double runM( double epsi, double M ) {
+    
+    vector< double > x( g.n, 0.0 );
+    vector< double > z( g.n, 0.0 );
+
+    for (size_t j = 1; j <= size_t( 1.0 / epsi ); ++j ) {
+      cerr << "j = " << j << endl;
+      vector< double > xstart  = x;
+      vector< double > zstart  = z;
+      double vstart = (pow( (1 - epsi), j ) - 2*epsi)*M - evalMultilinear( x );
+      vstart /= k;
+      double v = vstart;
+      while ( (v > epsi * vstart) && (onenorm(z) < epsi*j*k) ) {
+	vector< node_id > S; S.clear();
+	
+	vector< double > gradf(g.n);
+	gradientMultilinear( gradf, z );
+	//compute vec_g
+	vector< double > vec_g(g.n);
+	for (size_t i = 0; i < g.n; ++i) {
+	  vec_g[ i ] = (1.0 - z[i])*gradf[i];
+
+	  if (vec_g[i] >= v ) {
+	    if (z[i] <= 1.0 - pow(1.0 - epsi,j)) {
+	      if (z[i] < epsi*(1.0 - zstart[i]) + zstart[i]) {
+		S.push_back(i);
+	      }
+	    }
+	  }
+	}
+
+	if (S.size() == 0) {
+	  cerr << "S.size " << S.size() << endl;
+	  v = (1 - epsi)*v;
+	} else {
+	  cerr << "S.size " << S.size() << endl;
+
+	  double eta1 = findeta1( v, z, vec_g, S );
+	  double eta2 = findeta2( epsi, j, k, z, S );
+	  double eta = min( eta1, eta2 );
+
+	  vector< node_id > Teta;
+	  vector< node_id > Seta;
+	  computeTeta( eta - delta, v, z, S, Seta, Teta );
+	  //update x,z
+	  for (size_t i = 0; i < g.n; ++i) {
+	    if (Teta[i]) {
+	      x[i] = x[i] + eta*(1.0 - x[i]);
+	    }
+	    if (S[i]) {
+	      z[i] = z[i] + eta*(1.0 - z[i]);
+	    }
+	  }
+
+	  if (evalMultilinear( z ) > evalMultilinear( x ) ) {
+	    x.assign( z.begin(), z.end() );
+	  }
+	}
+      }
+    }
+
+    return evalMultilinear( x );
+  }
+  
+  void run() {
+      g.logg << "Ene: starting run..." << endL;
+      double solVal = 0.0;
+
+      double tau = 0;
+      vector< bool > A(g.n, false);
+      for (node_id u = 0; u < g.n; ++u) {
+	if (marge( nEvals, g, u, A ) >= tau) {
+	  tau = marge( nEvals, g,u, A);
+	}
+      }
+
+      double tauinit = tau;
+      while (tau < tauinit * k) {
+	cerr << "tau = " << tau << endl;
+	tau = tau*(1 + epsi);
+	double val = runM( epsi, tau ); //TODO: add rounding ?
+	if (val > solVal) {
+	  solVal = val;
+	}
+      }
+      
+      g.logg << INFO << "Ene: solVal=" << solVal << endL;
+      g.logg << INFO << "Ene: queries=" << nEvals << endL;
+
+      size_t rounds = 0;
+      
+
+
+      if (reportRounds) {
+	g.logg << INFO << "ATG: Adaptive rounds=" << rounds << endL;
       }
 
       reportResults( nEvals, solVal, rounds );

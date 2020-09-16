@@ -1,7 +1,7 @@
 #!/bin/bash
 
 make
-preproc ./data/ba.1k.10.txt ./data/ba.1k.10.bin
+./preproc ./data/ba.1k.10.txt ./data/ba.1k.10.bin
 
 echo "generating table in README..."
 echo 
