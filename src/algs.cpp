@@ -1842,7 +1842,8 @@ public:
 		    vector< node_id >& Seta,
 		    vector< node_id >& Teta,
 		    size_t j,
-		    vector< double >& zstart ) {
+		    vector< double >& zstart, size_t idxthread 
+		    ) {
     vector< double > zeta(z.begin(), z.end());
 
     for (size_t i = 0; i < S.size(); ++i) {
@@ -1850,6 +1851,9 @@ public:
     }
 
     vector< double > grad( g.n, 0.0 );
+    if (idxthread == 0) {
+       ++rounds;
+    }
     gradientMultilinear( grad, zeta );
     
     vector< double > vec_g_eta( g.n );
@@ -1884,23 +1888,23 @@ public:
   }
   
   bool evalEta( double eta, double epsi, double v,
-		vector< double >& z, vector< node_id >& S, size_t j, vector< double >& zstart ) {
+		vector< double >& z, vector< node_id >& S, size_t j, vector< double >& zstart, size_t threadindex ) {
     vector < node_id > Seta;
     vector < node_id > Teta;
-    computeTeta( eta, v, z, S, Seta, Teta, j, zstart );
+    computeTeta( eta, v, z, S, Seta, Teta, j, zstart, threadindex );
 
     //    cerr << eta << ' ' << Seta.size() << ' ' << S.size() << endl;
     return (Seta.size() >= (1.0 - epsi)*S.size());
   }
   
-  double findeta1( double v, vector< double >& z, vector< double >& vec_g, vector< node_id >& S, size_t j, vector< double >& zstart ) {
+double findeta1( double v, vector< double >& z, vector< double >& vec_g, vector< node_id >& S, size_t j, vector< double >& zstart, size_t threadindex ) {
 
     double etastart = 0.0;
     double etaend = epsi*epsi;
     while (etaend - etastart > delta) {
       double etatest = (etastart + etaend) / 2.0;
 
-      if ( evalEta( etatest, epsi, v, z, S, j, zstart ) ) {
+      if ( evalEta( etatest, epsi, v, z, S, j, zstart, threadindex ) ) {
 	etastart = etatest;
       } else {
 	etaend = etatest;
@@ -1927,13 +1931,14 @@ public:
   }
   
   void runM( double epsi, double M, double& valout, size_t i ) {
-    
     vector< double > x( g.n, 0.0 );
     vector< double > z( g.n, 0.0 );
 
     for (size_t j = 1; j <= size_t( 1.0 / epsi ); ++j ) {
-      if (i == 0)
-	cerr << "j = " << j << endl;
+       if (i == 0) {
+	  cerr << "j = " << j << endl;
+	  ++rounds;
+       }
       
       vector< double > xstart  = x;
       vector< double > zstart  = z;
@@ -1947,11 +1952,13 @@ public:
 	vector< node_id > S; S.clear();
 	
 	vector< double > gradf(g.n);
+	if (i == 0)
+	   ++rounds;
 	gradientMultilinear( gradf, z );
 	//compute vec_g
 	vector< double > vec_g(g.n);
 	for (size_t i = 0; i < g.n; ++i) {
-	  vec_g[ i ] = (1.0 - z[i])*gradf[i];
+	   vec_g[ i ] = (1.0 - z[i])*gradf[i];
 
 	  if (vec_g[i] >= v ) {
 	    if (z[i] <= 1.0 - pow(1.0 - epsi,j)) {
@@ -1968,7 +1975,7 @@ public:
 	} else {
 	  if (i == 0)
 	    cerr << "sizeS = " << S.size() << endl;
-	  double eta1 = findeta1( v, z, vec_g, S, j, zstart );
+	  double eta1 = findeta1( v, z, vec_g, S, j, zstart, i );
 	  double eta2 = findeta2( epsi, j, k, z, S );
 	  double eta = min( eta1, eta2 );
 
@@ -1978,7 +1985,7 @@ public:
 	  vector< node_id > Teta;
 	  vector< node_id > Seta;
 	  //computeTeta( eta - delta, v, z, S, Seta, Teta );
-	  computeTeta( eta, v, z, S, Seta, Teta, j, zstart );
+	  computeTeta( eta, v, z, S, Seta, Teta, j, zstart, i );
 	  //update x,z
 	  for (size_t i = 0; i < Teta.size(); ++i) {
 	    x[ Teta[i] ] = x[ Teta[i] ] + eta*(1.0 - x[ Teta[i] ]);
@@ -2021,6 +2028,7 @@ public:
       size_t nThreads = vtau.size();
       //size_t nThreads = 1;
 
+      ++rounds;
       g.logg << "Paralellizing OPT guesses in " << nThreads << " threads..." << endL;
       
       thread* wThreads = new thread[ nThreads ];
@@ -2040,10 +2048,6 @@ public:
       
       g.logg << INFO << "Ene: solVal=" << solVal << endL;
       g.logg << INFO << "Ene: queries=" << nEvals << endL;
-
-      size_t rounds = 0;
-      
-
 
       if (reportRounds) {
 	g.logg << INFO << "ATG: Adaptive rounds=" << rounds << endL;
