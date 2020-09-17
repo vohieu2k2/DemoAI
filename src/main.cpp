@@ -20,7 +20,9 @@ void print_help() {
        << "-T [run IteratedGreedy]" << endl
        << "-Q [run FastRandomGreedy]" << endl
        << "-B [run Blits]" << endl
+       << "-R [run Random]" << endl
        << "-E [run Ene et al. 2019]" << endl
+       << "-n [Samples to approx. multilinear extension]" << endl
        << "-o <outputFileName>" << endl
        << "-N <repetitions>" << endl
        << "-e <epsilon (default 0.1)>" << endl
@@ -41,7 +43,7 @@ void parseArgs( int argc, char** argv, Args& arg ) {
 
   string sarg;
   
-  while ((c = getopt( argc, argv, ":G:k:IMQTRlSBEALFN:o:e:d:vfrq") ) != -1) {
+  while ((c = getopt( argc, argv, ":G:k:IMQTRlSBEALFN:o:e:d:vfrqn:") ) != -1) {
     switch(c) {
     case 'f':
       arg.fast = true;
@@ -52,6 +54,10 @@ void parseArgs( int argc, char** argv, Args& arg ) {
     case 'e':
        sarg.assign( optarg );
        arg.epsi = stod( sarg );
+       break;
+    case 'n':
+       sarg.assign( optarg );
+       arg.nSamps = stoi( sarg );
        break;
     case 'd':
        sarg.assign( optarg );
@@ -105,7 +111,7 @@ void parseArgs( int argc, char** argv, Args& arg ) {
        arg.alg = TG;
        break;
     case 'R':
-       arg.alg = RG;
+       arg.alg = RAND;
        break;
     case 'A':
        arg.alg = ATG;
@@ -141,12 +147,20 @@ void runAlg( Args& args ) {
    allResults.add( "delta", args.delta );
    allResults.add( "alg", args.alg );
    allResults.add( "N", args.N );
+   //std::srand( time(0) );
    
    for (size_t i = 0; i < N; ++i) {
       args.g.logg << "runAlg: Repetition = " << i << endL;
       clock_t t_start = clock();
       std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
       switch (args.alg) {
+      case RAND:
+	 {
+	    args.logg(INFO, "Starting RAND..." );
+	    Rand rand( args );
+	    rand.run();
+	 }
+	 break;
       case IG:
 	 {
 	    args.logg(INFO, "Starting InterlaceGreedy..." );

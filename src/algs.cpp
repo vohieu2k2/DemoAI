@@ -11,7 +11,7 @@
 using namespace std;
 using namespace mygraph;
 
-enum Algs {IG=0, TG, RG, SG, BLITS, FIG, FRG, ATG, LATG, ANM, ENE};
+enum Algs {IG=0, TG, RG, SG, BLITS, FIG, FRG, ATG, LATG, ANM, ENE, RAND};
 
 uniform_real_distribution< double > unidist(0, 1);
 
@@ -42,6 +42,7 @@ struct Args {
    size_t N = 1;
    bool fast = false;
    bool reportRounds = false;
+  size_t nSamps = 10000;
 };
 
 vector< bool > emptyBoolVector;
@@ -1766,7 +1767,7 @@ public:
    double delta;
   size_t rounds = 0;
    double OPT; //guess for opt
-   size_t nSamps = 10;
+   size_t nSamps = 10000;
    size_t nEvals = 0;
   bool fast = false;
    bool reportRounds = false;
@@ -1778,8 +1779,9 @@ public:
       epsi = args.epsi;
       fast = args.fast;
       reportRounds = args.reportRounds;
-      delta = pow(epsi, 4) / (log( g.n) * log( 1.0 / epsi ) );
-	
+      //delta = pow(epsi, 4) / (log( g.n) * log( 1.0 / epsi ) );
+      delta = pow(epsi, 4) / (log( g.n) * log( 1.0 / epsi ) ) * 1000;
+      nSamps = args.nSamps;
       g.logg << "Ene initialized:" << endL;
       g.logg << "epsi=" << epsi << endL;
       g.logg << "delta=" << delta << endL;
@@ -1800,10 +1802,13 @@ public:
     return val;
   }
 
-  double evalMultilinear( vector< double >& x, size_t nSamps = 100 ) {
+  double evalMultilinear( vector< double >& x, size_t nsamps = 0 ) {
+    if (nsamps==0)
+      nsamps = nSamps;
+    
     double val = 0.0;
     vector< bool > set(g.n, false);
-    for (size_t i = 0; i < nSamps; ++i) {
+    for (size_t i = 0; i < nsamps; ++i) {
       for (size_t j = 0; j < g.n; ++j) {
 	set[j] = false;
 	if ( unidist( gen ) < x[j] ) {
@@ -1813,19 +1818,36 @@ public:
       val += compute_valSet( nEvals, g, set );
     }
 
-    return val / nSamps;
+    return val / nsamps;
   }
 
   void gradientMultilinear( vector< double >& gradient, vector< double >& x ) {
-    //forward approximation
-    double gamma = 0.1;
+    double gamma = 0.5;
     double fx = evalMultilinear( x );
     double normGrad = 0.0;
     for (size_t i = 0; i < g.n; ++i) {
-      x[i] += gamma;
-      gradient[i] = (evalMultilinear( x ) - fx) / gamma;
+      if (x[i] + 0.5 * gamma > 1.0) {
+	//use backward difference
+	x[i] -= gamma;
+	gradient[i] = (fx - evalMultilinear(x)) / gamma;
+	x[i] += gamma;
+      } else {
+	if (x[i] - 0.5*gamma < 0.0) {
+	  //use forward difference
+	  x[i] += gamma;
+	  gradient[i] = (evalMultilinear( x ) - fx) / gamma;
+	  x[i] -= gamma;
+	} else {
+	  //use central difference
+	  x[i] += 0.5 * gamma;
+	  gradient[i] = (evalMultilinear(x));
+	  x[i] -= gamma;
+	  gradient[i] = (gradient[i] - evalMultilinear(x) ) / gamma;
+	  x[i] += 0.5 * gamma;
+	}
+      }
+
       normGrad += gradient[i]*gradient[i];
-      x[i] -= gamma;
     }
 
     normGrad = sqrt( normGrad );
@@ -1842,12 +1864,14 @@ public:
 		    vector< node_id >& Seta,
 		    vector< node_id >& Teta,
 		    size_t j,
-		    vector< double >& zstart, size_t idxthread 
+		    vector< double >& zstart,
+		    size_t idxthread,
+		    vector< double >& vec_g 
 		    ) {
     vector< double > zeta(z.begin(), z.end());
 
     for (size_t i = 0; i < S.size(); ++i) {
-      zeta[ S[i] ] = zeta[ S[i] ]; // + eta*(1.0 - zeta[ S[i] ]);
+      zeta[ S[i] ] = zeta[ S[i] ] + eta*(1.0 - zeta[ S[i] ]);
     }
 
     vector< double > grad( g.n, 0.0 );
@@ -1856,55 +1880,83 @@ public:
     }
     gradientMultilinear( grad, zeta );
     
-    vector< double > vec_g_eta( g.n );
-    for (size_t i = 0; i < g.n; ++i) {
-      vec_g_eta[i] = (1.0 - zeta[i] )*grad[i];
-    }
-
     Seta.clear();
     Teta.clear();
 
-    // vector< double > vec_g_eta(g.n);
+    vector< double > vec_g_eta( g.n );
+    if (!fast) { //this is the version in Ene et al. 2019 
+      for (size_t i = 0; i < g.n; ++i) {
+	vec_g_eta[i] = (1.0 - zeta[i] )*grad[i];
+      }
+    } else { //modification that may work better given noisy gradient
+      for (size_t i = 0; i < g.n; ++i) {
+	vec_g_eta[ i ] = (1.0 - zeta[i])*grad[i];
+	if (zeta[i] <= 1.0 - pow(1.0 - epsi,j)) {
+	  if (zeta[i] < epsi*(1.0 - zstart[i]) + zstart[i]) {
+	    if (vec_g_eta[i] >= v ) {
+	      Seta.push_back(i);
+	    }
+	  }
+	}
+      }
+    }
+
+    // cerr << "v: " << v << endl;
+    // cerr << "vec_g - vec_g_eta" << endl;
     // for (size_t i = 0; i < g.n; ++i) {
-    //   vec_g_eta[ i ] = (1.0 - zeta[i])*grad[i];
-    //   if (zeta[i] <= 1.0 - pow(1.0 - epsi,j)) {
-    // 	if (zeta[i] < epsi*(1.0 - zstart[i]) + zstart[i]) {
-    // 	  if (vec_g_eta[i] >= v ) {
-    // 	    Seta.push_back(i);
-    // 	  }
-    // 	}
-    //   }
+    //   cerr << vec_g[i] - vec_g_eta[i] << ' ';
     // }
+    // cerr << endl;
+
     
     for (size_t i = 0; i < S.size(); ++i) {
-      if (vec_g_eta[S[i]] >= v)
-	Seta.push_back( S[i] );
+      if (!fast) { //this is version in Ene et al. 2019
+	if (vec_g_eta[S[i]] >= v)
+	  Seta.push_back( S[i] );
+      }
       if (vec_g_eta[S[i]] > 0.0)
 	Teta.push_back( S[i] );
     }
 
-    //cerr << "Seta.size() " << Seta.size() << endl;
+    //    cerr << "eta: " << eta << endl;
 
+    //cerr << "g_eta: ";
+
+    size_t nv = 0;
+    for (size_t i = 0; i < vec_g_eta.size(); ++i) {
+      //      cerr << vec_g_eta[i] << ' ';
+      if (vec_g_eta[i] > v)
+	++nv;
+    }
+    //cerr << nv << endl;
+    cerr << "S.size() " << S.size() << endl;
+    cerr << "Seta.size() " << Seta.size() << endl;
+    cerr << "S: " << endl;
+    for (size_t i = 0; i < S.size(); ++i) {
+      cerr << S[i] << ' ' << vec_g[S[i]] << ' ' << vec_g_eta[S[i]] << endl;
+    }
+    cerr << endl;
   }
   
   bool evalEta( double eta, double epsi, double v,
-		vector< double >& z, vector< node_id >& S, size_t j, vector< double >& zstart, size_t threadindex ) {
+		vector< double >& z, vector< node_id >& S, size_t j, vector< double >& zstart, size_t threadindex,
+		vector< double >& vec_g ) {
     vector < node_id > Seta;
     vector < node_id > Teta;
-    computeTeta( eta, v, z, S, Seta, Teta, j, zstart, threadindex );
+    computeTeta( eta, v, z, S, Seta, Teta, j, zstart, threadindex, vec_g );
 
     //    cerr << eta << ' ' << Seta.size() << ' ' << S.size() << endl;
     return (Seta.size() >= (1.0 - epsi)*S.size());
   }
   
-double findeta1( double v, vector< double >& z, vector< double >& vec_g, vector< node_id >& S, size_t j, vector< double >& zstart, size_t threadindex ) {
+  double findeta1( double v, vector< double >& z, vector< double >& vec_g, vector< node_id >& S, size_t j, vector< double >& zstart, size_t threadindex  ) {
 
     double etastart = 0.0;
     double etaend = epsi*epsi;
     while (etaend - etastart > delta) {
       double etatest = (etastart + etaend) / 2.0;
 
-      if ( evalEta( etatest, epsi, v, z, S, j, zstart, threadindex ) ) {
+      if ( evalEta( etatest, epsi, v, z, S, j, zstart, threadindex, vec_g ) ) {
 	etastart = etatest;
       } else {
 	etaend = etatest;
@@ -1975,7 +2027,7 @@ double findeta1( double v, vector< double >& z, vector< double >& vec_g, vector<
 	} else {
 	  if (i == 0)
 	    cerr << "sizeS = " << S.size() << endl;
-	  double eta1 = findeta1( v, z, vec_g, S, j, zstart, i );
+	  double eta1 = findeta1( v, z, vec_g, S, j, zstart, i  );
 	  double eta2 = findeta2( epsi, j, k, z, S );
 	  double eta = min( eta1, eta2 );
 
@@ -1985,7 +2037,7 @@ double findeta1( double v, vector< double >& z, vector< double >& vec_g, vector<
 	  vector< node_id > Teta;
 	  vector< node_id > Seta;
 	  //computeTeta( eta - delta, v, z, S, Seta, Teta );
-	  computeTeta( eta, v, z, S, Seta, Teta, j, zstart, i );
+	  computeTeta( eta, v, z, S, Seta, Teta, j, zstart, i, vec_g );
 	  //update x,z
 	  for (size_t i = 0; i < Teta.size(); ++i) {
 	    x[ Teta[i] ] = x[ Teta[i] ] + eta*(1.0 - x[ Teta[i] ]);
@@ -2003,7 +2055,7 @@ double findeta1( double v, vector< double >& z, vector< double >& vec_g, vector<
 
     }
 
-    valout= evalMultilinear( x );
+    valout= evalMultilinear( x, 10000 );
   }
   
   void run() {
@@ -2030,20 +2082,30 @@ double findeta1( double v, vector< double >& z, vector< double >& vec_g, vector<
 
       ++rounds;
       g.logg << "Paralellizing OPT guesses in " << nThreads << " threads..." << endL;
-      
-      thread* wThreads = new thread[ nThreads ];
-      vector < double > vals (nThreads );
-      for (size_t i = 0; i < nThreads; ++i) {
-	wThreads[i] = thread( &Ene::runM, this, epsi, vtau[i], ref( vals[i] ), i );
-      }
 
-      for (size_t i = 0; i < nThreads; ++i) {
-	wThreads[i].join();
-	if (vals[i] > solVal)
-	  solVal = vals[i];
-      }
+      if (nThreads > 1) {
+	thread* wThreads = new thread[ nThreads ];
+	vector < double > vals (nThreads );
+	for (size_t i = 0; i < nThreads; ++i) {
+	  wThreads[i] = thread( &Ene::runM, this, epsi, vtau[i], ref( vals[i] ), i );
+	}
 
-      delete [] wThreads;
+	for (size_t i = 0; i < nThreads; ++i) {
+	  wThreads[i].join();
+	  if (vals[i] > solVal)
+	    solVal = vals[i];
+	}
+
+	delete [] wThreads;
+      } else {
+	for (size_t i = 0; i < vtau.size(); ++i) {
+	  double val;
+	  runM( epsi, vtau[i], val, i);
+	  if (val > solVal)
+	    solVal = val;
+	  cerr << vtau[i] << ' ' << val << ' ' << solVal << endl;
+	}
+      }
 
       
       g.logg << INFO << "Ene: solVal=" << solVal << endL;
@@ -2590,6 +2652,38 @@ public:
 	 }
       }
    }
+};
+
+class Rand {
+public:
+  size_t k;
+  tinyGraph& g;
+  
+  Rand( Args& args ) : g( args.g ) {
+    k = args.k;
+  }
+
+  void run() {
+    vector< node_id > U(g.n);
+    for (size_t i = 0; i < g.n; ++i) {
+      U[i] = i;
+    }
+
+    random_shuffle( U.begin(), U.end() );
+
+    vector< bool > A(g.n, false );
+
+    for (size_t i = 0; i < k; ++i) {
+      A[U[i]] = true;
+    }
+    
+    size_t tmp = 0;
+    double val = compute_valSet( tmp, g, A );
+
+    g.logg << "RAND: " << val << endL;
+    reportResults( 0, val, 0 );
+
+  };
 };
 
 
