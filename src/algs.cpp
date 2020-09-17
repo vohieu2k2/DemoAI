@@ -1884,58 +1884,16 @@ public:
     Teta.clear();
 
     vector< double > vec_g_eta( g.n );
-    if (!fast) { //this is the version in Ene et al. 2019 
-      for (size_t i = 0; i < g.n; ++i) {
-	vec_g_eta[i] = (1.0 - zeta[i] )*grad[i];
-      }
-    } else { //modification that may work better given noisy gradient
-      for (size_t i = 0; i < g.n; ++i) {
-	vec_g_eta[ i ] = (1.0 - zeta[i])*grad[i];
-	if (zeta[i] <= 1.0 - pow(1.0 - epsi,j)) {
-	  if (zeta[i] < epsi*(1.0 - zstart[i]) + zstart[i]) {
-	    if (vec_g_eta[i] >= v ) {
-	      Seta.push_back(i);
-	    }
-	  }
-	}
-      }
+    for (size_t i = 0; i < g.n; ++i) {
+      vec_g_eta[i] = (1.0 - zeta[i] )*grad[i];
     }
 
-    // cerr << "v: " << v << endl;
-    // cerr << "vec_g - vec_g_eta" << endl;
-    // for (size_t i = 0; i < g.n; ++i) {
-    //   cerr << vec_g[i] - vec_g_eta[i] << ' ';
-    // }
-    // cerr << endl;
-
-    
     for (size_t i = 0; i < S.size(); ++i) {
-      if (!fast) { //this is version in Ene et al. 2019
-	if (vec_g_eta[S[i]] >= v)
-	  Seta.push_back( S[i] );
-      }
+      if (vec_g_eta[S[i]] >= v)
+	Seta.push_back( S[i] );
       if (vec_g_eta[S[i]] > 0.0)
 	Teta.push_back( S[i] );
     }
-
-    //    cerr << "eta: " << eta << endl;
-
-    //cerr << "g_eta: ";
-
-    size_t nv = 0;
-    for (size_t i = 0; i < vec_g_eta.size(); ++i) {
-      //      cerr << vec_g_eta[i] << ' ';
-      if (vec_g_eta[i] > v)
-	++nv;
-    }
-    //cerr << nv << endl;
-    cerr << "S.size() " << S.size() << endl;
-    cerr << "Seta.size() " << Seta.size() << endl;
-    cerr << "S: " << endl;
-    for (size_t i = 0; i < S.size(); ++i) {
-      cerr << S[i] << ' ' << vec_g[S[i]] << ' ' << vec_g_eta[S[i]] << endl;
-    }
-    cerr << endl;
   }
   
   bool evalEta( double eta, double epsi, double v,
@@ -1945,7 +1903,6 @@ public:
     vector < node_id > Teta;
     computeTeta( eta, v, z, S, Seta, Teta, j, zstart, threadindex, vec_g );
 
-    //    cerr << eta << ' ' << Seta.size() << ' ' << S.size() << endl;
     return (Seta.size() >= (1.0 - epsi)*S.size());
   }
   
@@ -1988,7 +1945,6 @@ public:
 
     for (size_t j = 1; j <= size_t( 1.0 / epsi ); ++j ) {
        if (i == 0) {
-	  cerr << "j = " << j << endl;
 	  ++rounds;
        }
       
@@ -2025,14 +1981,12 @@ public:
 	  //v = (1 - epsi)*v;
 	  v = 0.75*v;
 	} else {
-	  if (i == 0)
-	    cerr << "sizeS = " << S.size() << endl;
 	  double eta1 = findeta1( v, z, vec_g, S, j, zstart, i  );
 	  double eta2 = findeta2( epsi, j, k, z, S );
 	  double eta = min( eta1, eta2 );
 
-	  if (i == 0)
-	    cerr << "eta1 = " << eta1 << ", " << "eta2 =" << eta2 << endl;
+	  //if (i == 0)
+	    //cerr << "eta1 = " << eta1 << ", " << "eta2 =" << eta2 << endl;
 	  
 	  vector< node_id > Teta;
 	  vector< node_id > Seta;
@@ -2056,6 +2010,7 @@ public:
     }
 
     valout= evalMultilinear( x, 10000 );
+    cerr << "thread i (tau, val): " << M << ' ' << valout << endl;
   }
   
   void run() {
