@@ -43,6 +43,7 @@ struct Args {
    bool fast = false;
    bool reportRounds = false;
   size_t nSamps = 10000;
+  size_t nThreads = 80;
 };
 
 vector< bool > emptyBoolVector;
@@ -226,6 +227,48 @@ double marge( size_t& nEvals, tinyGraph& g, node_id x, vector<bool>& set,
 }
 #endif
 
+void eval_multi_worker( bool& terminate, bool& work, vector< double >& x, tinyGraph& g, double& val, size_t nsamps, mt19937& gen ) {
+  size_t tmpEvals = 0;
+
+  vector< bool > set(g.n, false);
+  while (!terminate) {
+    if (work) {
+        val = 0.0;
+	for (size_t i = 0; i < nsamps; ++i) {
+	  for (size_t j = 0; j < g.n; ++j) {
+	    set[j] = false;
+	    if ( unidist( gen ) < x[j] ) {
+	      set[j] = true;
+	    }
+	  }
+
+	  val += compute_valSet( tmpEvals, g, set );
+	}
+      }
+  }
+}
+
+double eval_multilinear_base( size_t& nEvals, tinyGraph& g, vector< double >& x, size_t nsamps, size_t nThreads, vector< mt19937 >& vgens ) {
+
+  thread* wThreads = new thread[ nThreads ];
+  vector < double > vals (nThreads );
+  size_t nSampsPerThread = nsamps / nThreads + 1;
+  size_t totSamps = nSampsPerThread * nThreads;
+  double val = 0.0;
+  
+  for (size_t i = 0; i < nThreads; ++i) {
+    wThreads[i] = thread( eval_multi_worker, ref( x ), ref( g ), ref( vals[i] ), nSampsPerThread, ref( vgens[i] ) );
+  }
+  for (size_t i = 0; i < nThreads; ++i) {
+    wThreads[i].join();
+    val += vals[i];
+  }
+  delete [] wThreads;
+  
+  val /= totSamps;
+  nEvals += totSamps;
+  return val;
+}
 
 void reportResults( size_t nEvals, double obj, size_t rounds = 0) {
    allResults.add( "obj", obj );
@@ -1772,6 +1815,8 @@ public:
   bool fast = false;
    bool reportRounds = false;
   bool print = true;
+  size_t nThreads;
+  vector< mt19937 > vgens;
   Ene( Args& args ) : g( args.g ) {
       k = args.k;
       //OPT = 130180;
@@ -1784,12 +1829,20 @@ public:
       delta = pow(epsi, 3);
 
       nSamps = args.nSamps;
+      nThreads = args.nThreads;
       g.logg << "Ene initialized:" << endL;
       g.logg << "epsi=" << epsi << endL;
       g.logg << "delta=" << delta << endL;
       g.logg << "k=" << k << endL;
+      g.logg << "nThreads=" << nThreads << endL;
+      g.logg << "nSamps=" << nSamps << endL;
 
       g.logg << WARN << "Algorithm run as heuristic. Theoretical guarantees will not hold!" << endL << INFO;
+      std::random_device r;
+      for (size_t i = 0; i < nThreads; ++i) {
+	mt19937 gen( r() );
+	vgens.push_back( gen );
+      }
 	 
    }
 
@@ -1805,9 +1858,30 @@ public:
   }
 
   double evalMultilinear( vector< double >& x, size_t nsamps = 0 ) {
-    if (nsamps==0)
+    if (nsamps == 0) {
       nsamps = nSamps;
+    }
+
+    double val1 = eval_multilinear_base(
+				 nEvals,
+				 g,
+				 x,
+				 nsamps,
+				 nThreads,
+				 vgens
+				 );
+    //    double val2 = evalMultilinearOld( x, nsamps );
     
+    //cerr << val1 << ' ' << val2 << endl;
+    return val1;
+    
+  }
+
+  double evalMultilinearOld( vector< double >& x, size_t nsamps = 0 ) {
+    if (nsamps == 0) {
+      nsamps = nSamps;
+    }
+
     double val = 0.0;
     vector< bool > set(g.n, false);
     for (size_t i = 0; i < nsamps; ++i) {
@@ -1822,7 +1896,7 @@ public:
 
     return val / nsamps;
   }
-
+  
   void gradientMultilinear( vector< double >& gradient, vector< double >& x ) {
     double gamma = 0.5;
     double fx = evalMultilinear( x );
@@ -1954,8 +2028,6 @@ public:
       if (i == 0) {
 	++rounds;
       }
-
-
       
       xstart.assign(x.begin(),x.end());
       zstart.assign(z.begin(),z.end());
@@ -2048,7 +2120,8 @@ public:
 
     }
 
-    valout= evalMultilinear( x, 10000 );
+    valout= evalMultilinear( x, 100000 );
+    nEvals -= 100000; //don't count this evaluation in the total nEvals
     cerr << "thread " << i << " (tau, val, onenorm): " << M << ' ' << valout << ' ' << onenorm( x ) << endl;
     cerr << "x: " <<endl;
     for (size_t i = 0; i < g.n; ++i) {
@@ -2079,8 +2152,8 @@ public:
 	tau = tau*(1.1);
       }
 
-      size_t nThreads = vtau.size();
-      //size_t nThreads = 1;
+      //size_t nThreads = vtau.size();
+      size_t nThreads = 1;
 
       ++rounds;
       g.logg << "Paralellizing OPT guesses in " << nThreads << " threads..." << endL;
