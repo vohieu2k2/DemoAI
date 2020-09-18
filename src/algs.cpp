@@ -1771,7 +1771,7 @@ public:
    size_t nEvals = 0;
   bool fast = false;
    bool reportRounds = false;
-
+  bool print = true;
   Ene( Args& args ) : g( args.g ) {
       k = args.k;
       //OPT = 130180;
@@ -1780,7 +1780,9 @@ public:
       fast = args.fast;
       reportRounds = args.reportRounds;
       //delta = pow(epsi, 4) / (log( g.n) * log( 1.0 / epsi ) );
-      delta = pow(epsi, 4) / (log( g.n) * log( 1.0 / epsi ) ) * 1000;
+      //delta = pow(epsi, 4) / (log( g.n) * log( 1.0 / epsi ) ) * 10;
+      delta = pow(epsi, 3);
+
       nSamps = args.nSamps;
       g.logg << "Ene initialized:" << endL;
       g.logg << "epsi=" << epsi << endL;
@@ -1852,7 +1854,7 @@ public:
 
     normGrad = sqrt( normGrad );
     for (size_t i = 0; i < g.n; ++i) {
-      gradient[i] = gradient[i] / normGrad;
+      //gradient[i] = gradient[i] / normGrad;
     }
 
   }
@@ -1894,6 +1896,8 @@ public:
       if (vec_g_eta[S[i]] > 0.0)
 	Teta.push_back( S[i] );
     }
+
+    //    cerr << "eta Seta S " << eta << ' ' << Seta.size() << ' ' << S.size() << ' ' << (Seta.size() >= (1.0 - epsi)*S.size()) << endl;
   }
   
   bool evalEta( double eta, double epsi, double v,
@@ -1910,6 +1914,7 @@ public:
 
     double etastart = 0.0;
     double etaend = epsi*epsi;
+    //double etaend = epsi;
     while (etaend - etastart > delta) {
       double etatest = (etastart + etaend) / 2.0;
 
@@ -1942,22 +1947,36 @@ public:
   void runM( double epsi, double M, double& valout, size_t i ) {
     vector< double > x( g.n, 0.0 );
     vector< double > z( g.n, 0.0 );
+    vector< double > xstart;
+    vector< double > zstart;
 
-    for (size_t j = 1; j <= size_t( 1.0 / epsi ); ++j ) {
-       if (i == 0) {
-	  ++rounds;
-       }
+    for (size_t j = 1; j <= size_t( ceil(1.0 / epsi) ); ++j ) {
+      if (i == 0) {
+	++rounds;
+      }
+
+
       
-      vector< double > xstart  = x;
-      vector< double > zstart  = z;
-      double vstart = (pow( (1 - epsi), j ) - 2*epsi)*M - evalMultilinear( x );
+      xstart.assign(x.begin(),x.end());
+      zstart.assign(z.begin(),z.end());
+      //double vstart = (pow( (1 - epsi), j ) - 2*epsi)*M - evalMultilinear( x );
+      double vstart = M - evalMultilinear( x );
       if (vstart < 0) {
-	continue;
+	vstart = 0;
       }
       vstart /= k;
+
+      if (print) {
+	cerr << "j = " << j << endl;
+	cerr << "vstart = (" << M << - evalMultilinear( x ) << ") / k = " << vstart << endl; 
+      }
+      
+      //double vstart = (1 - epsi)*M - evalMultilinear( x );
+
+
       double v = vstart;
       while ( (v > epsi * vstart) && (onenorm(z) < epsi*j*k  ) ) {
-	vector< node_id > S; S.clear();
+      	vector< node_id > S; S.clear();
 	
 	vector< double > gradf(g.n);
 	if (i == 0)
@@ -1976,7 +1995,9 @@ public:
 	    }
 	  }
 	}
-
+	//if (print)
+	  //cerr << "S.size " << S.size() << endl;
+	
 	if (S.size() == 0) {
 	  //v = (1 - epsi)*v;
 	  v = 0.75*v;
@@ -1984,14 +2005,15 @@ public:
 	  double eta1 = findeta1( v, z, vec_g, S, j, zstart, i  );
 	  double eta2 = findeta2( epsi, j, k, z, S );
 	  double eta = min( eta1, eta2 );
-
-	  //if (i == 0)
-	    //cerr << "eta1 = " << eta1 << ", " << "eta2 =" << eta2 << endl;
+	  double minStepSize = epsi*epsi / 10;
+	  if (eta < minStepSize)
+	    eta = minStepSize;
+	  //cerr << "eta1 = " << eta1 << ", " << "eta2 =" << eta2 << endl;
 	  
 	  vector< node_id > Teta;
 	  vector< node_id > Seta;
 	  //computeTeta( eta - delta, v, z, S, Seta, Teta );
-	  computeTeta( eta, v, z, S, Seta, Teta, j, zstart, i, vec_g );
+	  computeTeta( eta - delta, v, z, S, Seta, Teta, j, zstart, i, vec_g );
 	  //update x,z
 	  for (size_t i = 0; i < Teta.size(); ++i) {
 	    x[ Teta[i] ] = x[ Teta[i] ] + eta*(1.0 - x[ Teta[i] ]);
@@ -2004,13 +2026,37 @@ public:
 	  if (evalMultilinear( z ) > evalMultilinear( x ) ) {
 	    x.assign( z.begin(), z.end() );
 	  }
+
+	  // if (print) {
+	  //   cerr << "x: " << endl;
+	  //   for (size_t i = 0; i < g.n; ++i) {
+	  //     cerr << x[i] << ' ';
+	  //   }
+	  //   cerr << endl;
+
+	  //   cerr << "z: " << endl;
+	  //   for (size_t i = 0; i < g.n; ++i) {
+	  //     cerr << z[i] << ' ';
+	  //   }
+	  //   cerr << endl;
+	  // }
+	  
 	}
       }
+      //cerr << "v epsi*vstart " << v << ' ' << epsi*vstart << endl;
+      //cerr << "onenorm(z), epsijk " << onenorm(z) << ' ' << epsi*j*k << endl;
 
     }
 
     valout= evalMultilinear( x, 10000 );
-    cerr << "thread i (tau, val): " << M << ' ' << valout << endl;
+    cerr << "thread " << i << " (tau, val, onenorm): " << M << ' ' << valout << ' ' << onenorm( x ) << endl;
+    cerr << "x: " <<endl;
+    for (size_t i = 0; i < g.n; ++i) {
+      cerr << x[i] << ' ';
+    }
+    cerr << endl;
+    cerr << endl;
+      
   }
   
   void run() {
@@ -2029,7 +2075,8 @@ public:
       vector < double > vtau;
       while (tau < tauinit * k) {
 	vtau.push_back( tau );
-	tau = tau*(1 + epsi);
+	//tau = tau*(1 + epsi);
+	tau = tau*(1.1);
       }
 
       size_t nThreads = vtau.size();
@@ -2067,7 +2114,7 @@ public:
       g.logg << INFO << "Ene: queries=" << nEvals << endL;
 
       if (reportRounds) {
-	g.logg << INFO << "ATG: Adaptive rounds=" << rounds << endL;
+	g.logg << INFO << "Ene: Adaptive rounds=" << rounds << endL;
       }
 
       reportResults( nEvals, solVal, rounds );
