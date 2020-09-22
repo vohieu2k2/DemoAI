@@ -106,18 +106,18 @@ signed long marge( size_t& nEvals, tinyGraph& g, node_id u, vector<bool>& set) {
 }
 
 size_t compute_valSet( size_t& nEvals, tinyGraph& g, vector<bool>& set ) {
-   ++nEvals;
-   size_t val = 0;
-   for (node_id u = 0 ; u < g.n; ++u) {
-      vector< tinyEdge >& neis = g.adjList[u].neis;
-      for (size_t j = 0; j < neis.size(); ++j) {
-	 node_id v = neis[j].target;
-	 if ( ( set[u] && !set[v] ) || (!set[u] && set[v]) ) 
-	    val += neis[j].weight;
-      }
-   }
-
-   return val / 2;
+  ++nEvals;
+  size_t val = 0;
+  for (node_id u = 0 ; u < g.n; ++u) {
+    vector< tinyEdge >& neis = g.adjList[u].neis;
+    for (size_t j = 0; j < neis.size(); ++j) {
+      node_id v = neis[j].target;
+      if ( ( set[u] && !set[v] ) || (!set[u] && set[v]) ) 
+	val += neis[j].weight;
+    }
+  }
+  
+  return val / 2;
 }
 #else
 double compute_valSet( size_t& nEvals, tinyGraph& g, vector<bool>& set,
@@ -1861,7 +1861,18 @@ public:
   
   double evalMultilinear( vector< double >& x ) {
     //cut-value only
-    
+    double val = 0.0;
+    for (node_id u = 0 ; u < g.n; ++u) {
+      vector< tinyEdge >& neis = g.adjList[u].neis;
+      for (size_t j = 0; j < neis.size(); ++j) {
+	node_id v = neis[j].target;
+	if (u < v) {
+	  val += x[u] * ( 1.0 - x[v] ) + (1.0 - x[u]) * x[v];
+	}
+      }
+    }
+
+    return val;
   }
   
   double evalMultilinearSample( vector< double >& x, size_t nsamps = 0 ) {
@@ -1907,8 +1918,21 @@ public:
 
     return val / nsamps;
   }
-  
+
   void gradientMultilinear( vector< double >& gradient, vector< double >& x ) {
+    for (node_id u = 0; u < g.n; ++u) {
+      vector< tinyEdge >& neis = g.adjList[u].neis;
+      double& valu = gradient[ u ];
+      valu = 0.0;
+      for (size_t j = 0; j < neis.size(); ++j) {
+	node_id v = neis[j].target;
+	valu += 1.0 - 2 * x[v];
+      }
+    }
+
+  }
+  
+  void gradientMultilinearSample( vector< double >& gradient, vector< double >& x ) {
     double gamma = 0.5;
     double fx = evalMultilinear( x );
     double normGrad = 0.0;
@@ -2131,8 +2155,8 @@ public:
 
     }
 
-    valout= evalMultilinear( x, 100000 );
-    nEvals -= 100000; //don't count this evaluation in the total nEvals
+    valout= evalMultilinear( x ); //evalMultilinear( x, 100000 );
+    //nEvals -= 100000; //don't count this evaluation in the total nEvals
     cerr << "OPT Guess " << i << " (tau, val, onenorm): " << M << ' ' << valout << ' ' << onenorm( x ) << endl;
     cerr << "x: " <<endl;
     for (size_t i = 0; i < g.n; ++i) {
