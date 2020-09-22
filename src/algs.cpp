@@ -227,24 +227,20 @@ double marge( size_t& nEvals, tinyGraph& g, node_id x, vector<bool>& set,
 }
 #endif
 
-void eval_multi_worker( bool& terminate, bool& work, vector< double >& x, tinyGraph& g, double& val, size_t nsamps, mt19937& gen ) {
+void eval_multi_worker( vector< double >& x, tinyGraph& g, double& val, size_t nsamps, mt19937& gen ) {
   size_t tmpEvals = 0;
 
-  vector< bool > set(g.n, false);
-  while (!terminate) {
-    if (work) {
-        val = 0.0;
-	for (size_t i = 0; i < nsamps; ++i) {
-	  for (size_t j = 0; j < g.n; ++j) {
-	    set[j] = false;
-	    if ( unidist( gen ) < x[j] ) {
-	      set[j] = true;
-	    }
-	  }
-
-	  val += compute_valSet( tmpEvals, g, set );
-	}
+  val = 0.0;
+  vector< bool > set(g.n, false );
+  for (size_t i = 0; i < nsamps; ++i) {
+    for (size_t j = 0; j < g.n; ++j) {
+      set[j] = false;
+      if ( unidist( gen ) < x[j] ) {
+	set[j] = true;
       }
+    }
+
+    val += compute_valSet( tmpEvals, g, set );
   }
 }
 
@@ -1834,9 +1830,14 @@ public:
       g.logg << "epsi=" << epsi << endL;
       g.logg << "delta=" << delta << endL;
       g.logg << "k=" << k << endL;
-      g.logg << "nThreads=" << nThreads << endL;
       g.logg << "nSamps=" << nSamps << endL;
 
+      if (nSamps < 10000) {
+	nThreads = 1;
+      }
+
+      g.logg << "nThreads=" << nThreads << endL;
+	    
       g.logg << WARN << "Algorithm run as heuristic. Theoretical guarantees will not hold!" << endL << INFO;
       std::random_device r;
       for (size_t i = 0; i < nThreads; ++i) {
@@ -1857,25 +1858,35 @@ public:
     return val;
   }
 
-  double evalMultilinear( vector< double >& x, size_t nsamps = 0 ) {
+  
+  double evalMultilinear( vector< double >& x ) {
+    //cut-value only
+    
+  }
+  
+  double evalMultilinearSample( vector< double >& x, size_t nsamps = 0 ) {
     if (nsamps == 0) {
       nsamps = nSamps;
     }
 
-    double val1 = eval_multilinear_base(
-				 nEvals,
-				 g,
-				 x,
-				 nsamps,
-				 nThreads,
-				 vgens
-				 );
-    //    double val2 = evalMultilinearOld( x, nsamps );
+    double val;
     
-    //cerr << val1 << ' ' << val2 << endl;
-    return val1;
+    if (nThreads > 1)
+      val = eval_multilinear_base(
+					  nEvals,
+					  g,
+					  x,
+					  nsamps,
+					  nThreads,
+					  vgens
+					  );
+    else 
+      val = evalMultilinearOld( x, nsamps );
+
+    return val;
     
   }
+
 
   double evalMultilinearOld( vector< double >& x, size_t nsamps = 0 ) {
     if (nsamps == 0) {
@@ -2039,8 +2050,8 @@ public:
       vstart /= k;
 
       if (print) {
-	cerr << "j = " << j << endl;
-	cerr << "vstart = (" << M << - evalMultilinear( x ) << ") / k = " << vstart << endl; 
+	cerr << "Guess " << i << ": j = " << j << endl;
+	cerr << "Guess " << i << ": vstart = (" << M << - evalMultilinear( x ) << ") / k = " << vstart << endl; 
       }
       
       //double vstart = (1 - epsi)*M - evalMultilinear( x );
@@ -2122,7 +2133,7 @@ public:
 
     valout= evalMultilinear( x, 100000 );
     nEvals -= 100000; //don't count this evaluation in the total nEvals
-    cerr << "thread " << i << " (tau, val, onenorm): " << M << ' ' << valout << ' ' << onenorm( x ) << endl;
+    cerr << "OPT Guess " << i << " (tau, val, onenorm): " << M << ' ' << valout << ' ' << onenorm( x ) << endl;
     cerr << "x: " <<endl;
     for (size_t i = 0; i < g.n; ++i) {
       cerr << x[i] << ' ';
@@ -2152,20 +2163,23 @@ public:
 	tau = tau*(1.1);
       }
 
-      //size_t nThreads = vtau.size();
-      size_t nThreads = 1;
+      size_t nThreadsG;
+      if (nThreads == 1) 
+	nThreadsG = vtau.size();
+      else
+	nThreadsG = 1;
 
       ++rounds;
-      g.logg << "Paralellizing OPT guesses in " << nThreads << " threads..." << endL;
+      g.logg << "Paralellizing OPT guesses in " << nThreadsG << " threads..." << endL;
 
-      if (nThreads > 1) {
-	thread* wThreads = new thread[ nThreads ];
-	vector < double > vals (nThreads );
-	for (size_t i = 0; i < nThreads; ++i) {
+      if (nThreadsG > 1) {
+	thread* wThreads = new thread[ nThreadsG ];
+	vector < double > vals (nThreadsG );
+	for (size_t i = 0; i < nThreadsG; ++i) {
 	  wThreads[i] = thread( &Ene::runM, this, epsi, vtau[i], ref( vals[i] ), i );
 	}
 
-	for (size_t i = 0; i < nThreads; ++i) {
+	for (size_t i = 0; i < nThreadsG; ++i) {
 	  wThreads[i].join();
 	  if (vals[i] > solVal)
 	    solVal = vals[i];
@@ -2178,7 +2192,6 @@ public:
 	  runM( epsi, vtau[i], val, i);
 	  if (val > solVal)
 	    solVal = val;
-	  cerr << vtau[i] << ' ' << val << ' ' << solVal << endl;
 	}
       }
 
