@@ -42,7 +42,7 @@ struct Args {
    size_t N = 1;
    bool fast = false;
    bool reportRounds = false;
-  size_t nSamps = 10000;
+  size_t nSamps = 0;
   size_t nThreads = 80;
 };
 
@@ -1832,13 +1832,12 @@ public:
       g.logg << "k=" << k << endL;
       g.logg << "nSamps=" << nSamps << endL;
 
-      if (nSamps < 10000) {
-	nThreads = 1;
+      if (nSamps == 0) {
+	g.logg << "Computing multilinear extension exactly..." << endL;
       }
-
-      g.logg << "nThreads=" << nThreads << endL;
+									  
+      nThreads = 1;
 	    
-      g.logg << WARN << "Algorithm run as heuristic. Theoretical guarantees will not hold!" << endL << INFO;
       std::random_device r;
       for (size_t i = 0; i < nThreads; ++i) {
 	mt19937 gen( r() );
@@ -1858,9 +1857,18 @@ public:
     return val;
   }
 
-  
-  double evalMultilinear( vector< double >& x ) {
+  /** 
+   *  This is multilinear formula for unweighted, undirected
+   *  graph cut.
+   */ 
+  double evalMultilinear(size_t& nEvals, vector< double >& x, size_t nsamps = 0 ) {
+    if (nsamps > 0) {
+      return evalMultilinearSample( nEvals, x, nsamps );
+    }
     //cut-value only
+
+    ++nEvals;
+
     double val = 0.0;
     for (node_id u = 0 ; u < g.n; ++u) {
       vector< tinyEdge >& neis = g.adjList[u].neis;
@@ -1875,7 +1883,7 @@ public:
     return val;
   }
   
-  double evalMultilinearSample( vector< double >& x, size_t nsamps = 0 ) {
+  double evalMultilinearSample( size_t& nEvals, vector< double >& x, size_t nsamps = 0 ) {
     if (nsamps == 0) {
       nsamps = nSamps;
     }
@@ -1892,14 +1900,14 @@ public:
 					  vgens
 					  );
     else 
-      val = evalMultilinearOld( x, nsamps );
+      val = evalMultilinearOld( nEvals, x, nsamps );
 
     return val;
     
   }
 
 
-  double evalMultilinearOld( vector< double >& x, size_t nsamps = 0 ) {
+  double evalMultilinearOld( size_t& nEvals, vector< double >& x, size_t nsamps = 0 ) {
     if (nsamps == 0) {
       nsamps = nSamps;
     }
@@ -1919,7 +1927,18 @@ public:
     return val / nsamps;
   }
 
-  void gradientMultilinear( vector< double >& gradient, vector< double >& x ) {
+  /*
+   * Graph cut-value objective
+   */ 
+  void gradientMultilinear( size_t& nEvals, vector< double >& gradient, vector< double >& x, size_t nsamps = 0 ) {
+    if (nsamps > 0) {
+      gradientMultilinearSample( nEvals, gradient, x );
+      return;
+    }
+
+    
+    ++nEvals;
+    
     for (node_id u = 0; u < g.n; ++u) {
       vector< tinyEdge >& neis = g.adjList[u].neis;
       double& valu = gradient[ u ];
@@ -1932,43 +1951,37 @@ public:
 
   }
   
-  void gradientMultilinearSample( vector< double >& gradient, vector< double >& x ) {
+  void gradientMultilinearSample( size_t& nEvals, vector< double >& gradient, vector< double >& x ) {
     double gamma = 0.5;
-    double fx = evalMultilinear( x );
-    double normGrad = 0.0;
+    double fx = evalMultilinearSample( nEvals, x, nSamps );
     for (size_t i = 0; i < g.n; ++i) {
       if (x[i] + 0.5 * gamma > 1.0) {
 	//use backward difference
 	x[i] -= gamma;
-	gradient[i] = (fx - evalMultilinear(x)) / gamma;
+	gradient[i] = (fx - evalMultilinearSample( nEvals, x, nSamps)) / gamma;
 	x[i] += gamma;
       } else {
 	if (x[i] - 0.5*gamma < 0.0) {
 	  //use forward difference
 	  x[i] += gamma;
-	  gradient[i] = (evalMultilinear( x ) - fx) / gamma;
+	  gradient[i] = (evalMultilinearSample( nEvals, x, nSamps ) - fx) / gamma;
 	  x[i] -= gamma;
 	} else {
 	  //use central difference
 	  x[i] += 0.5 * gamma;
-	  gradient[i] = (evalMultilinear(x));
+	  gradient[i] = (evalMultilinearSample(nEvals, x, nSamps));
 	  x[i] -= gamma;
-	  gradient[i] = (gradient[i] - evalMultilinear(x) ) / gamma;
+	  gradient[i] = (gradient[i] - evalMultilinearSample(nEvals, x, nSamps) ) / gamma;
 	  x[i] += 0.5 * gamma;
 	}
       }
 
-      normGrad += gradient[i]*gradient[i];
-    }
-
-    normGrad = sqrt( normGrad );
-    for (size_t i = 0; i < g.n; ++i) {
-      //gradient[i] = gradient[i] / normGrad;
     }
 
   }
 
-  void computeTeta( double eta,
+  void computeTeta( size_t& nEvals,
+		   double eta,
 		    double v,
 		    vector< double >& z,
 		    vector< node_id >& S,
@@ -1989,7 +2002,7 @@ public:
     if (idxthread == 0) {
        ++rounds;
     }
-    gradientMultilinear( grad, zeta );
+    gradientMultilinear( nEvals, grad, zeta, nSamps );
     
     Seta.clear();
     Teta.clear();
@@ -2009,17 +2022,17 @@ public:
     //    cerr << "eta Seta S " << eta << ' ' << Seta.size() << ' ' << S.size() << ' ' << (Seta.size() >= (1.0 - epsi)*S.size()) << endl;
   }
   
-  bool evalEta( double eta, double epsi, double v,
+  bool evalEta( size_t& nEvals, double eta, double epsi, double v,
 		vector< double >& z, vector< node_id >& S, size_t j, vector< double >& zstart, size_t threadindex,
 		vector< double >& vec_g ) {
     vector < node_id > Seta;
     vector < node_id > Teta;
-    computeTeta( eta, v, z, S, Seta, Teta, j, zstart, threadindex, vec_g );
+    computeTeta(nEvals, eta, v, z, S, Seta, Teta, j, zstart, threadindex, vec_g );
 
     return (Seta.size() >= (1.0 - epsi)*S.size());
   }
   
-  double findeta1( double v, vector< double >& z, vector< double >& vec_g, vector< node_id >& S, size_t j, vector< double >& zstart, size_t threadindex  ) {
+  double findeta1( size_t& nEvals, double v, vector< double >& z, vector< double >& vec_g, vector< node_id >& S, size_t j, vector< double >& zstart, size_t threadindex  ) {
 
     double etastart = 0.0;
     double etaend = epsi*epsi;
@@ -2027,7 +2040,7 @@ public:
     while (etaend - etastart > delta) {
       double etatest = (etastart + etaend) / 2.0;
 
-      if ( evalEta( etatest, epsi, v, z, S, j, zstart, threadindex, vec_g ) ) {
+      if ( evalEta( nEvals, etatest, epsi, v, z, S, j, zstart, threadindex, vec_g ) ) {
 	etastart = etatest;
       } else {
 	etaend = etatest;
@@ -2053,21 +2066,20 @@ public:
     return eta;
   }
   
-  void runM( double epsi, double M, double& valout, size_t i ) {
+  void runM(size_t& rounds, size_t& nEvals, double epsi, double M, double& valout, size_t i ) {
     vector< double > x( g.n, 0.0 );
     vector< double > z( g.n, 0.0 );
     vector< double > xstart;
     vector< double > zstart;
 
     for (size_t j = 1; j <= size_t( ceil(1.0 / epsi) ); ++j ) {
-      if (i == 0) {
-	++rounds;
-      }
+      //++rounds;
+
       
       xstart.assign(x.begin(),x.end());
       zstart.assign(z.begin(),z.end());
-      //double vstart = (pow( (1 - epsi), j ) - 2*epsi)*M - evalMultilinear( x );
-      double vstart = M - evalMultilinear( x );
+      double vstart = (pow( (1 - epsi), j ) - 2*epsi)*M - evalMultilinear(nEvals, x, nSamps );
+      //      double vstart = M - evalMultilinear( nEvals, x );
       if (vstart < 0) {
 	vstart = 0;
       }
@@ -2075,7 +2087,6 @@ public:
 
       if (print) {
 	cerr << "Guess " << i << ": j = " << j << endl;
-	cerr << "Guess " << i << ": vstart = (" << M << - evalMultilinear( x ) << ") / k = " << vstart << endl; 
       }
       
       //double vstart = (1 - epsi)*M - evalMultilinear( x );
@@ -2086,9 +2097,8 @@ public:
       	vector< node_id > S; S.clear();
 	
 	vector< double > gradf(g.n);
-	if (i == 0)
-	   ++rounds;
-	gradientMultilinear( gradf, z );
+	++rounds;
+	gradientMultilinear( nEvals, gradf, z, nSamps );
 	//compute vec_g
 	vector< double > vec_g(g.n);
 	for (size_t i = 0; i < g.n; ++i) {
@@ -2109,18 +2119,18 @@ public:
 	  //v = (1 - epsi)*v;
 	  v = 0.75*v;
 	} else {
-	  double eta1 = findeta1( v, z, vec_g, S, j, zstart, i  );
+	  double eta1 = findeta1(nEvals, v, z, vec_g, S, j, zstart, i  );
 	  double eta2 = findeta2( epsi, j, k, z, S );
 	  double eta = min( eta1, eta2 );
-	  double minStepSize = epsi*epsi / 10;
-	  if (eta < minStepSize)
-	    eta = minStepSize;
+	  //	  double minStepSize = epsi*epsi / 10;
+	  //if (eta < minStepSize)
+	  //eta = minStepSize;
 	  //cerr << "eta1 = " << eta1 << ", " << "eta2 =" << eta2 << endl;
 	  
 	  vector< node_id > Teta;
 	  vector< node_id > Seta;
 	  //computeTeta( eta - delta, v, z, S, Seta, Teta );
-	  computeTeta( eta - delta, v, z, S, Seta, Teta, j, zstart, i, vec_g );
+	  computeTeta( nEvals, eta - delta, v, z, S, Seta, Teta, j, zstart, i, vec_g );
 	  //update x,z
 	  for (size_t i = 0; i < Teta.size(); ++i) {
 	    x[ Teta[i] ] = x[ Teta[i] ] + eta*(1.0 - x[ Teta[i] ]);
@@ -2130,7 +2140,7 @@ public:
 	    z[ S[i] ] = z[ S[i] ] + eta*(1.0 - z[ S[i] ]);
 	  }
 
-	  if (evalMultilinear( z ) > evalMultilinear( x ) ) {
+	  if (evalMultilinear(nEvals, z, nSamps ) > evalMultilinear(nEvals, x, nSamps ) ) {
 	    x.assign( z.begin(), z.end() );
 	  }
 
@@ -2155,15 +2165,15 @@ public:
 
     }
 
-    valout= evalMultilinear( x ); //evalMultilinear( x, 100000 );
-    //nEvals -= 100000; //don't count this evaluation in the total nEvals
+    valout= evalMultilinear(nEvals, x, 0 ); //evalMultilinear( x, 100000 );
+    nEvals -= 1; //don't count this evaluation in the total nEvals
     cerr << "OPT Guess " << i << " (tau, val, onenorm): " << M << ' ' << valout << ' ' << onenorm( x ) << endl;
-    cerr << "x: " <<endl;
-    for (size_t i = 0; i < g.n; ++i) {
-      cerr << x[i] << ' ';
-    }
-    cerr << endl;
-    cerr << endl;
+    //cerr << "x: " <<endl;
+    //for (size_t i = 0; i < g.n; ++i) {
+    //cerr << x[i] << ' ';
+    //}
+    //cerr << endl;
+    //cerr << endl;
       
   }
   
@@ -2181,10 +2191,14 @@ public:
 
       double tauinit = tau;
       vector < double > vtau;
+      vector< size_t > vEvals;
+      vector< size_t > vRounds;
       while (tau < tauinit * k) {
 	vtau.push_back( tau );
-	//tau = tau*(1 + epsi);
-	tau = tau*(1.1);
+	tau = tau*(1 + epsi);
+	vEvals.push_back(0);
+	vRounds.push_back( 1 );
+	//tau = tau*(1.1);
       }
 
       size_t nThreadsG;
@@ -2193,29 +2207,33 @@ public:
       else
 	nThreadsG = 1;
 
-      ++rounds;
       g.logg << "Paralellizing OPT guesses in " << nThreadsG << " threads..." << endL;
 
       if (nThreadsG > 1) {
 	thread* wThreads = new thread[ nThreadsG ];
 	vector < double > vals (nThreadsG );
 	for (size_t i = 0; i < nThreadsG; ++i) {
-	  wThreads[i] = thread( &Ene::runM, this, epsi, vtau[i], ref( vals[i] ), i );
+	  wThreads[i] = thread( &Ene::runM, this, ref(vRounds[i]), ref( vEvals[i] ), epsi, vtau[i], ref( vals[i] ), i );
 	}
 
 	for (size_t i = 0; i < nThreadsG; ++i) {
 	  wThreads[i].join();
 	  if (vals[i] > solVal)
 	    solVal = vals[i];
+	  nEvals += vEvals[i];
+	  if (vRounds[i] > rounds)
+	    rounds = vRounds[i];
 	}
 
 	delete [] wThreads;
       } else {
 	for (size_t i = 0; i < vtau.size(); ++i) {
 	  double val;
-	  runM( epsi, vtau[i], val, i);
+	  runM(vRounds[i], nEvals, epsi, vtau[i], val, i);
 	  if (val > solVal)
 	    solVal = val;
+	  if (vRounds[i] > rounds)
+	    rounds = vRounds[i];
 	}
       }
 
