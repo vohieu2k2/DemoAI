@@ -8,7 +8,7 @@ using namespace mygraph;
 int main( int argc, char** argv ) {
    if (argc < 2) {
       cout << "Usage: " << argv[0] << " <input file> <output file>" << endl;
-      cout << "Input must be graph in format suitable for simplifyGraph::read_edge_list" << endl;
+      cout << "Input is unweighted edge list\n";
       cout << "Graph is simplified, then written to output file (as undirected binary)" << endl;
       exit(1);
    }
@@ -16,7 +16,7 @@ int main( int argc, char** argv ) {
   string inputGraphName ( argv[1] );
   simplifyGraph g;
 
-  g.read_edge_list( inputGraphName );
+  g.read_unweighted_edge_list( inputGraphName );
   Logger logg;
   logg << "Removing isolates..." << endL;
   g.remove_isolates();

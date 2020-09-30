@@ -210,7 +210,51 @@ namespace mygraph {
 	    }
 	 }
       }
-	 
+
+      void read_unweighted_edge_list( string fname ) {
+	 logg << "Reading edge list from file " << fname << endL;
+	 ifstream ifile ( fname.c_str() );
+
+	 string sline;
+	 stringstream ss;
+	 unsigned line_number = 0;
+
+	 while (getline( ifile, sline ) ) {
+	    if (sline[0] != '#') {
+	       ss.clear();
+	       ss.str( sline );
+
+	       //have an edge on this line
+	       unsigned from,to; unsigned wht = 1;
+	       ss >> from;
+	       ss >> to;
+
+	       simplifyNode* emptyNode;
+	       while (to >= this->n) {
+		  emptyNode = new simplifyNode;
+		  emptyNode->id = this->n;
+		  adjList.push_back( emptyNode );
+		  ++this->n;
+	       }
+
+	       while (from >= this->n) {
+		  emptyNode = new simplifyNode;
+		  emptyNode->id = this->n;
+		  adjList.push_back( emptyNode );
+		  ++this->n;
+	       }
+
+	       add_edge( from, to, wht ); 
+
+	    }
+
+	    ++line_number;
+	 }
+      
+      
+	 ifile.close();
+      }
+      
       void read_edge_list( string fname ) {
 	 logg << "Reading edge list from file " << fname << endL;
 	 ifstream ifile ( fname.c_str() );
