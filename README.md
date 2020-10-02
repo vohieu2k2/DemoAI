@@ -1,7 +1,7 @@
-## Fast and Parallelizable Algorithms for Submodular Maximization
+## 
 
 This is the implementation of all algorithms evaluated in the paper,
-for the cardinality-constrained maximum cut application (weighted or unweighted)
+for the cardinality-constrained maximum cut application (unweighted)
 and revenue maximization application.
 
 ### Dependencies 
@@ -11,6 +11,7 @@ GNU g++, GNU make utility
 . `maxcut`, the main program to run all algorithms for cardinality-constrained maximum cut application
 . `revmax`, the main program to run all algorithms for revenue maximization application
 . `preproc`, for preprocessing edge lists to custom binary format
+. `ba`, for generating Barabasi-Albert graphs
 
 ### Format of input graph
 
@@ -69,3 +70,28 @@ on Barabasi-Albert random graph with n=968 and k=200.
      AdaSimpleThresh                 1694               499716                   30
      AdaThreshGreedy                 1978                96104                  157
 ```
+
+### Reproduce figures from paper
+Scripts are provided to reproduce Fig. 1 and Fig. 3. Requires python3 and matplotlib.
+Fig. 1, parts a and b:
+```
+make
+cd exp/fig-1ab
+bash reproduce.bash
+```
+
+Fig. 1, parts c -- e:
+```
+make
+cd exp/fig-1cde
+bash reproduce.bash
+```
+
+Fig. 3. Only runs multilinear with max of 100 samples due to exorbitant runtime.
+```
+make
+cd exp/fig-3
+bash reproduce.bash
+```
+
+

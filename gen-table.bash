@@ -18,9 +18,9 @@ printf "%20s %20s %20s %20s\n" "Algorithm" "Objective" "Queries" "Rounds"
 out=`$bin -G $data -k $k -q -e $epsi -T -f -r`
 printf "%20s %20.0f %20.0f %20.0f\n" "IteratedGreedy" $out
 
-#run FastInterlaceGreedy
-out=`$bin -G $data -k $k -q -e $epsi -f -r -F`
-printf "%20s %20.0f %20.0f %20.0f\n" "FastInterlaceGreedy" $out
+#run Ene et al. 2020 (with exact oracles for multilinear extension)
+out=`$bin -G $data -k $k -q -e $epsi -f -r -E`
+printf "%20s %20.0f %20.0f %20.0f\n" "Ene et al. 2020" $out
 
 #run FastRandomGreedy
 out=`$bin -G $data -k $k -q -e $epsi -f -r -Q -N $repetitions`

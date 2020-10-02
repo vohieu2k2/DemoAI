@@ -1,6 +1,6 @@
 CPPFLAGS=-std=c++11 -Wall -O2 -l pthread
 
-all: maxcut revmax preproc
+all: maxcut revmax preproc ba
 
 maxcut: src/main.cpp src/mygraph.cpp src/algs.cpp
 	g++ src/main.cpp -o maxcut  ${CPPFLAGS}
@@ -14,3 +14,5 @@ er: src/gen_er.cpp src/mygraph.cpp
 	g++ -std=c++11 src/gen_er.cpp -o er
 ba: src/gen_ba.cpp src/mygraph.cpp
 	g++ -std=c++11 src/gen_ba.cpp -o ba
+clean:
+	rm ba maxcut preproc revmax 

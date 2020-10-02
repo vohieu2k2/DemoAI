@@ -211,6 +211,69 @@ namespace mygraph {
 	 }
       }
 
+      void read_edge_list( string fname ) {
+	 logg << "Reading edge list from file " << fname << endL;
+	 ifstream ifile ( fname.c_str() );
+
+	 string sline;
+	 stringstream ss;
+	 unsigned line_number = 0;
+	 bool weighted = false;
+	 while (getline( ifile, sline ) ) {
+	    ss.clear();
+	    ss.str( sline );
+	    if (sline[0] != '#') {
+	       if (line_number == 0) {
+		  //process first line.
+		  //determine if edge list is weighted or not
+		  vector< unsigned > vtmp;
+		  unsigned tmp;
+		  while (ss >> tmp) {
+		     vtmp.push_back(tmp);
+		  }
+		  if (vtmp.size() == 3) {
+		     weighted = true;
+		     logg << "Graph is weighted." << endL;
+		  } else {
+		     logg << "Graph is unweighted." << endL;
+		  }
+		  ss.clear();
+		  ss.str( sline );
+	       }
+
+	       //have an edge on this line
+	       unsigned from,to; unsigned wht = 1;
+	       ss >> from;
+	       ss >> to;
+	       if (weighted)
+		  ss >> wht;
+
+	       simplifyNode* emptyNode;
+	       while (to >= this->n) {
+		  emptyNode = new simplifyNode;
+		  emptyNode->id = this->n;
+		  adjList.push_back( emptyNode );
+		  ++this->n;
+	       }
+
+	       while (from >= this->n) {
+		  emptyNode = new simplifyNode;
+		  emptyNode->id = this->n;
+		  adjList.push_back( emptyNode );
+		  ++this->n;
+	       }
+
+	       add_edge( from, to, wht ); 
+
+	       ++line_number;
+	    }
+
+	 }
+      
+      
+	 ifile.close();
+      }
+      
       void read_unweighted_edge_list( string fname ) {
 	 logg << "Reading edge list from file " << fname << endL;
 	 ifstream ifile ( fname.c_str() );
@@ -255,65 +318,6 @@ namespace mygraph {
 	 ifile.close();
       }
       
-      void read_edge_list( string fname ) {
-	 logg << "Reading edge list from file " << fname << endL;
-	 ifstream ifile ( fname.c_str() );
-
-	 string sline;
-	 stringstream ss;
-	 unsigned line_number = 0;
-	 bool weighted; 
-	 while (getline( ifile, sline ) ) {
-	    if (sline[0] != '#') {
-	       ss.clear();
-	       ss.str( sline );
-
-	       if (line_number == 0) {
-		  ss >> this->n; //Value is currently ignored
-		  ss >> weighted;
-		  if (weighted) {
-		     logg << "Graph is weighted." << endL;
-		     
-		     this->n = 0;
-		  } else {
-		     logg << "Graph is unweighted." << endL;
-		     this->n = 0;
-		     //init_empty_graph();
-		  }
-	       }
-	       else {
-		  //have an edge on this line
-		  unsigned from,to; unsigned wht = 1;
-		  ss >> from;
-		  ss >> to;
-		  if (weighted)
-		     ss >> wht;
-		  simplifyNode* emptyNode;
-		  while (to >= this->n) {
-		     emptyNode = new simplifyNode;
-		     emptyNode->id = this->n;
-		     adjList.push_back( emptyNode );
-		     ++this->n;
-		  }
-
-		  while (from >= this->n) {
-		     emptyNode = new simplifyNode;
-		     emptyNode->id = this->n;
-		     adjList.push_back( emptyNode );
-		     ++this->n;
-		  }
-
-		  add_edge( from, to, wht ); 
-
-	       }
-
-	       ++line_number;
-	    }
-	 }
-      
-	 ifile.close();
-      }
-
    };
 
    //Compact, undirected graph structure
@@ -871,8 +875,6 @@ namespace mygraph {
 
       void write_edge_list( string fname ) {
 	 ofstream ifile ( fname.c_str(), ios::out );
-	 ifile << n << " 0 0" << endl;
-      
 	 size_t ss;
 	 tinyEdge temp;
 	 node_id nei_id;

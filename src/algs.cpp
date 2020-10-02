@@ -1810,7 +1810,7 @@ public:
    size_t nEvals = 0;
   bool fast = false;
    bool reportRounds = false;
-  bool print = true;
+  bool print = false;
   size_t nThreads;
   vector< mt19937 > vgens;
   Ene( Args& args ) : g( args.g ) {
@@ -2167,7 +2167,7 @@ public:
 
     valout= evalMultilinear(nEvals, x, 0 ); //evalMultilinear( x, 100000 );
     nEvals -= 1; //don't count this evaluation in the total nEvals
-    cerr << "OPT Guess " << i << " (tau, val, onenorm): " << M << ' ' << valout << ' ' << onenorm( x ) << endl;
+    //cerr << "OPT Guess " << i << " (tau, val, onenorm): " << M << ' ' << valout << ' ' << onenorm( x ) << endl;
     //cerr << "x: " <<endl;
     //for (size_t i = 0; i < g.n; ++i) {
     //cerr << x[i] << ' ';

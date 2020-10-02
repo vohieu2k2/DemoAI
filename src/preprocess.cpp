@@ -16,7 +16,7 @@ int main( int argc, char** argv ) {
   string inputGraphName ( argv[1] );
   simplifyGraph g;
 
-  g.read_unweighted_edge_list( inputGraphName );
+  g.read_edge_list( inputGraphName );
   Logger logg;
   logg << "Removing isolates..." << endL;
   g.remove_isolates();

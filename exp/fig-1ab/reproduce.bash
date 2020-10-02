@@ -2,10 +2,10 @@
 
 wget http://snap.stanford.edu/data/web-Google.txt.gz
 gunzip web-Google.txt.gz
-../preproc web-Google.txt google.bin
+../../preproc web-Google.txt google.bin
 
 data='./google.bin'
-bin='../maxcut'
+bin='../../maxcut'
 nodes='875713'
 alg[1]='-A'
 alg[2]='-E'
