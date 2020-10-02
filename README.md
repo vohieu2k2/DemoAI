@@ -62,7 +62,7 @@ on Barabasi-Albert random graph with n=968 and k=200.
 ```
            Algorithm            Objective              Queries               Rounds
       IteratedGreedy                 1992               309840                  800
- FastInterlaceGreedy                 1847               133589               139106
+     Ene et al. 2020                 1577               118936                 1129
     FastRandomGreedy                 1635               173702                  200
    AdaNonmonotoneMax                 1701               476073                   23
      AdaSimpleThresh                 1694               499716                   30
