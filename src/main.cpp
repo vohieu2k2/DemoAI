@@ -13,16 +13,15 @@ void print_help() {
   cout << "Options: " << endl;
   cout << "-G <graph filename in binary format>" << endl
        << "-k <cardinality constraint>" << endl
-       << "-A [run AdaptiveSimpleThreshold]" << endl
-       << "-M [run AdaptiveNonmonotoneMax]" << endl
-       << "-L [run AdaptiveThresholdGreedy]" << endl
-       << "-F [run FastInterlaceGreedy]" << endl
-       << "-T [run IteratedGreedy]" << endl
-       << "-Q [run FastRandomGreedy]" << endl
-       << "-B [run Blits]" << endl
+       << "-A [run AdaptiveSimpleThreshold (this work)]" << endl
+       << "-M [run AdaptiveNonmonotoneMax (Fahrbach et al. 2019)]" << endl
+       << "-L [run AdaptiveThresholdGreedy (this work)]" << endl
+       << "-F [run FastInterlaceGreedy (Kuhnle 2019)]" << endl
+       << "-T [run IteratedGreedy (Gupta et al. 2010)]" << endl
+       << "-Q [run FastRandomGreedy (Buchbinder et al. 2015)]" << endl
        << "-R [run Random]" << endl
-       << "-E [run Ene et al. 2019]" << endl
-       << "-n [Samples to approx. multilinear extension]" << endl
+       << "-E [run Ene et al. 2020]" << endl
+       << "-n [Samples to approx. multilinear extension, 0 for exact on maxcut]" << endl
        << "-o <outputFileName>" << endl
        << "-N <repetitions>" << endl
        << "-e <epsilon (default 0.1)>" << endl

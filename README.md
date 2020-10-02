@@ -34,16 +34,18 @@ generates the `graph.bin` file in the correct binary format for input to the oth
 
 ### Parameters
 ```
-Options: 
+Options:
 -G <graph filename in binary format>
 -k <cardinality constraint>
--A [run AdaptiveSimpleThreshold]
--M [run AdaptiveNonmonotoneMax]
--L [run AdaptiveThresholdGreedy]
--F [run FastInterlaceGreedy]
--T [run IteratedGreedy]
--Q [run FastRandomGreedy]
--B [run Blits]
+-A [run AdaptiveSimpleThreshold (this work)]
+-M [run AdaptiveNonmonotoneMax (Fahrbach et al. 2019)]
+-L [run AdaptiveThresholdGreedy (this work)]
+-F [run FastInterlaceGreedy (Kuhnle 2019)]
+-T [run IteratedGreedy (Gupta et al. 2010)]
+-Q [run FastRandomGreedy (Buchbinder et al. 2015)]
+-R [run Random]
+-E [run Ene et al. 2020]
+-n [Samples to approx. multilinear extension, 0 for exact on maxcut]
 -o <outputFileName>
 -N <repetitions>
 -e <epsilon (default 0.1)>
