@@ -17,11 +17,9 @@ GNU g++, GNU make utility
 
 The programs take as input a custom binary format; the program
 `preproc` is provided to convert an undirected edge list format
-to the binary format. The first line of the edge list must be of the form
-```
-<Number of Nodes> <1 if weighted, 0 otherwise> 0
-```
-Each successive line describes an edge
+to the binary format. 
+
+Each line of the edge list describes an edge
 ```
 <From id> <To id> <Weight (only if weighted)>
 ```
