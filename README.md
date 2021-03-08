@@ -1,8 +1,12 @@
 ## 
 
-This is the implementation of all algorithms evaluated in the paper,
-for the cardinality-constrained maximum cut application (unweighted)
-and revenue maximization application.
+This is the reference implementation of all algorithms evaluated in the paper:
+Kuhnle, A. (2021). Nearly Linear-Time, Parallelizable Algorithms for Non-Monotone
+Submodular Maximization. In AAAI Conference on Artificial Intelligence.
+AAAI Press, Palo Alto, California USA.
+
+Scripts are provided to partially reproduce the results and figures presented in
+the paper.
 
 ### Dependencies 
 GNU g++, GNU make utility
